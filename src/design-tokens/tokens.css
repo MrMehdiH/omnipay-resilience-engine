@@ -1,0 +1,199 @@
+/**
+ * OmniPay Resilience Engine - 3-Tier CSS Design Tokens
+ * Strict rule: No hardcoded hex or arbitrary px values in UI components.
+ */
+
+:root {
+  /* =====================================================================
+   * TIER 1: PRIMITIVE TOKENS (Raw values, palettes, physical metrics)
+   * ===================================================================== */
+  
+  /* Slate & Neutral Scales */
+  --primitive-slate-950: #020617;
+  --primitive-slate-900: #0f172a;
+  --primitive-slate-850: #131d35;
+  --primitive-slate-800: #1e293b;
+  --primitive-slate-750: #25334d;
+  --primitive-slate-700: #334155;
+  --primitive-slate-600: #475569;
+  --primitive-slate-500: #64748b;
+  --primitive-slate-400: #94a3b8;
+  --primitive-slate-300: #cbd5e1;
+  --primitive-slate-200: #e2e8f0;
+  --primitive-slate-100: #f1f5f9;
+  --primitive-slate-50:  #f8fafc;
+  --primitive-white:     #ffffff;
+  --primitive-black:     #000000;
+
+  /* Accent: Electric Indigo (Global / Stripe) */
+  --primitive-indigo-950: #1e1b4b;
+  --primitive-indigo-900: #312e81;
+  --primitive-indigo-600: #4f46e5;
+  --primitive-indigo-500: #6366f1;
+  --primitive-indigo-400: #818cf8;
+  --primitive-indigo-100: #e0e7ff;
+  --primitive-indigo-50:  #eef2ff;
+
+  /* Accent: Persian Emerald / Teal (Iran / Shaparak) */
+  --primitive-teal-950: #042f2e;
+  --primitive-teal-900: #134e4a;
+  --primitive-teal-600: #0d9488;
+  --primitive-teal-500: #14b8a6;
+  --primitive-teal-400: #2dd4bf;
+  --primitive-teal-100: #ccfbf1;
+  --primitive-teal-50:  #f0fdfa;
+
+  /* Status Colors: Emerald (Healthy/Success), Amber (Warning/Lag/VPN Alert), Rose (Danger/Broken) */
+  --primitive-emerald-500: #10b981;
+  --primitive-emerald-400: #34d399;
+  --primitive-emerald-950: #022c22;
+
+  --primitive-amber-500: #f59e0b;
+  --primitive-amber-400: #fbbf24;
+  --primitive-amber-950: #451a03;
+
+  --primitive-rose-500: #f43f5e;
+  --primitive-rose-400: #fb7185;
+  --primitive-rose-950: #4c0519;
+
+  --primitive-cyan-500: #06b6d4;
+  --primitive-cyan-400: #22d3ee;
+  --primitive-cyan-950: #083344;
+
+  --primitive-purple-500: #a855f7;
+  --primitive-purple-400: #c084fc;
+  --primitive-purple-950: #3b0764;
+
+  /* Spacing Primitives */
+  --primitive-space-0: 0;
+  --primitive-space-1: 0.25rem;  /* 4px */
+  --primitive-space-2: 0.5rem;   /* 8px */
+  --primitive-space-3: 0.75rem;  /* 12px */
+  --primitive-space-4: 1rem;     /* 16px */
+  --primitive-space-5: 1.25rem;  /* 20px */
+  --primitive-space-6: 1.5rem;   /* 24px */
+  --primitive-space-8: 2rem;     /* 32px */
+  --primitive-space-10: 2.5rem;  /* 40px */
+  --primitive-space-12: 3rem;    /* 48px */
+  --primitive-space-16: 4rem;    /* 64px */
+
+  /* Radius Primitives */
+  --primitive-radius-xs: 0.25rem;
+  --primitive-radius-sm: 0.375rem;
+  --primitive-radius-md: 0.5rem;
+  --primitive-radius-lg: 0.75rem;
+  --primitive-radius-xl: 1rem;
+  --primitive-radius-2xl: 1.5rem;
+  --primitive-radius-full: 9999px;
+
+  /* Typography Fallbacks */
+  --primitive-font-en: var(--font-inter, system-ui, -apple-system, sans-serif);
+  --primitive-font-fa: var(--font-vazirmatn, Tahoma, sans-serif);
+  --primitive-font-mono: var(--font-mono, "JetBrains Mono", monospace);
+
+  /* =====================================================================
+   * TIER 2: SEMANTIC TOKENS (Abstract roles, themes, meaning)
+   * ===================================================================== */
+  
+  /* Dark-first Fintech Operations Console Theme */
+  --surface-canvas: var(--primitive-slate-950);
+  --surface-primary: var(--primitive-slate-900);
+  --surface-secondary: var(--primitive-slate-850);
+  --surface-tertiary: var(--primitive-slate-800);
+  --surface-elevated: var(--primitive-slate-750);
+  --surface-overlay: rgba(2, 6, 23, 0.85);
+
+  /* Content & Text */
+  --text-primary: var(--primitive-slate-100);
+  --text-secondary: var(--primitive-slate-300);
+  --text-muted: var(--primitive-slate-400);
+  --text-subtle: var(--primitive-slate-500);
+  --text-inverse: var(--primitive-slate-950);
+
+  /* Borders & Dividers */
+  --border-subtle: rgba(51, 65, 85, 0.4);
+  --border-default: var(--primitive-slate-700);
+  --border-strong: var(--primitive-slate-600);
+  --border-focus: var(--primitive-indigo-500);
+
+  /* Status Tokens */
+  --status-success: var(--primitive-emerald-400);
+  --status-success-bg: rgba(16, 185, 129, 0.12);
+  --status-success-border: rgba(16, 185, 129, 0.3);
+
+  --status-warning: var(--primitive-amber-400);
+  --status-warning-bg: rgba(245, 158, 11, 0.12);
+  --status-warning-border: rgba(245, 158, 11, 0.3);
+
+  --status-danger: var(--primitive-rose-400);
+  --status-danger-bg: rgba(244, 63, 94, 0.12);
+  --status-danger-border: rgba(244, 63, 94, 0.3);
+
+  --status-info: var(--primitive-cyan-400);
+  --status-info-bg: rgba(6, 182, 212, 0.12);
+  --status-info-border: rgba(6, 182, 212, 0.3);
+
+  /* Ecosystem Accent Specifics */
+  --accent-stripe: var(--primitive-indigo-500);
+  --accent-stripe-subtle: rgba(99, 102, 241, 0.15);
+  --accent-stripe-border: rgba(99, 102, 241, 0.35);
+
+  --accent-shaparak: var(--primitive-teal-400);
+  --accent-shaparak-subtle: rgba(20, 184, 166, 0.15);
+  --accent-shaparak-border: rgba(20, 184, 166, 0.35);
+
+  /* Dynamic Active Brand Tokens (default to Global Stripe) */
+  --accent-brand: var(--accent-stripe);
+  --accent-brand-subtle: var(--accent-stripe-subtle);
+  --accent-brand-border: var(--accent-stripe-border);
+
+  /* =====================================================================
+   * TIER 3: COMPONENT / CONTEXTUAL TOKENS (Scoped UI element variables)
+   * ===================================================================== */
+  
+  --header-height: 4.25rem;
+  --header-bg: rgba(15, 23, 42, 0.75);
+  --header-border: var(--border-subtle);
+
+  --card-bg: var(--surface-primary);
+  --card-border: var(--border-subtle);
+  --card-radius: var(--primitive-radius-xl);
+
+  --xray-accent: var(--primitive-purple-400);
+  --xray-bg-subtle: rgba(168, 85, 247, 0.12);
+  --xray-border: rgba(168, 85, 247, 0.3);
+
+  --badge-radius: var(--primitive-radius-md);
+  --button-radius: var(--primitive-radius-lg);
+
+  --terminal-bg: rgba(2, 6, 23, 0.95);
+  --terminal-border: var(--primitive-slate-800);
+  --terminal-text: var(--primitive-slate-300);
+
+  /* Active Font variable */
+  --font-active: var(--primitive-font-en);
+}
+
+/* =====================================================================
+ * ECOSYSTEM-SPECIFIC OVERRIDES & DIRECTION
+ * ===================================================================== */
+
+[data-ecosystem="GLOBAL_STRIPE"] {
+  --accent-brand: var(--accent-stripe);
+  --accent-brand-subtle: var(--accent-stripe-subtle);
+  --accent-brand-border: var(--accent-stripe-border);
+  --font-active: var(--primitive-font-en);
+}
+
+[data-ecosystem="IRAN_SHAPARAK"] {
+  --accent-brand: var(--accent-shaparak);
+  --accent-brand-subtle: var(--accent-shaparak-subtle);
+  --accent-brand-border: var(--accent-shaparak-border);
+  --font-active: var(--primitive-font-fa);
+}
+
+/* Recruiter X-Ray Mode Highlight Overrides */
+[data-xray="true"] .xray-inspect {
+  outline: 1px dashed var(--xray-accent);
+  outline-offset: 2px;
+}
