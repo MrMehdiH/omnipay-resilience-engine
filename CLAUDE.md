@@ -1,74 +1,35 @@
-<!-- BEGIN:nextjs-agent-rules -->
+# CLAUDE.md - System Rules & Architecture
 
-## This is NOT the Next.js you know
+## 1. Project: Omnipay Resilience Engine
+Zero-Auth Interactive Sandbox demonstrating Idempotency, DAG-based transaction state machines, and Growth Loop economics.
 
-This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` (resolved from this file's directory; in monorepos the `next` package may not be visible from the repo root) before writing any code. Heed deprecation notices.
+## 2. Dual-Ecosystem Localization
+- **Global Mode (en, LTR):** Stripe + Klarna BNPL, USD metrics, Edge Webhook latency.
+- **Iran Mode (fa, RTL):** Shaparak IPG + SnappPay BNPL, Toman formatting, Vazirmatn font, VPN-active latency warning.
 
-This block is written and re-added by `next dev` — verify at `node_modules/next/dist/server/lib/generate-agent-files.js`. Removing it from a diff only re-creates the uncommitted change; committing it with your work keeps the tree clean.
+## 3. Directory Structure (Strictly Isolated Core)
+- `src/core/`: Pure TypeScript, zero React/DOM imports. Must be environment-agnostic.
+- `src/core/dag/`: Idempotency registry and DAG state machine logic.
+- `src/core/growth-engine/`: Unit economics and BNPL calculator.
+- `src/schemas/`: Zod schemas defining all system I/O boundaries.
 
-<!-- END:nextjs-agent-rules -->
+## 4. Strict Technical Constraints
+- **Stack:** Next.js 16.4.2 (App Router), TypeScript (strict: true, zero any), Tailwind CSS, Zustand, Zod, Vitest.
+- **Styling:** 3-tier CSS custom property Design Tokens. Absolutely NO hardcoded hex/px values.
+- **State Management:** Shared states like `vpnDetected` must be read from a single Zustand atom to prevent desync between `ChaosConfig` and DAG dependencies.
 
-# OmniPay Resilience Engine — Architectural Contract & Guardrails
+## 5. UI & Core Contracts
+- **Intent-Based Identity:** `transactionId` and `idempotencyKey` MUST be generated ONCE per purchase intent, not per click. Fingerprint hashes payload to detect manipulation.
+- **Cart Lock Re-entrancy:** The `CART_LOCK` node must execute before `IDEMPOTENCY`. The lock is re-entrant for a specific key, preventing tab/intent contention while allowing the registry to handle double-clicks.
+- **Registry Scope:** The IdempotencyRegistry operates in-process (single node). Exactly-once guarantees across multiple nodes require a distributed lock (e.g., Redis `SET NX PX`). Cryptographic tamper checks must use SHA-256 on the backend, while `cyrb53` is used here for fast client-side fail-fast.
 
-## 1. Project Overview & Mission
-`omnipay-resilience-engine` is an interactive full-stack resilience and fintech growth engineering showcase built to demonstrate production-grade distributed resilience patterns to Global and Iranian CTOs, VPs of Engineering, and Tech Recruiters.
-
-It models dual payment ecosystems, chaos engineering scenarios (network latency spikes, payment gateway degradation, network partitions), self-healing circuit breakers, idempotency key guarantees, and real-time DAG (Directed Acyclic Graph) transaction pipelines.
-
----
-
-## 2. Dual-Ecosystem Contract
-
-The application operates under two distinct localized payment ecosystems switchable in real time:
-
-| Specification | Global Ecosystem (`GLOBAL_STRIPE`) | Iranian Ecosystem (`IRAN_SHAPARAK`) |
-| :--- | :--- | :--- |
-| **Locale & Direction** | `en` (English), `dir="ltr"` | `fa` (Persian), `dir="rtl"` |
-| **Typography** | `Inter`, `JetBrains Mono` | `Vazirmatn`, `JetBrains Mono` |
-| **Payment Rails** | Stripe (Credit/Debit) + Klarna BNPL | Shaparak IPG (Saman/Mellat/Parsian) + SnappPay BNPL |
-| **Currency** | USD (`$`) | Iranian Toman (`تومان`) |
-| **Failure Modes** | Card decline (e.g., `do_not_honor`), 3DS timeouts, Stripe 500s | Shaparak error codes (e.g. 11/14/41/55), Card expiration |
-| **Special Simulation** | Global multi-region routing & currency conversion | VPN Warning Simulation (alerting user if non-Iran IP is detected for IPG callback security) |
-
----
-
-## 3. Strict Stack & Code Standards
-
-- **Framework**: Next.js App Router (React 19, Server & Client component clarity).
-- **TypeScript**: `strict: true`, zero `any` usage (`unknown` + type narrowing or Zod parsing required).
-- **CSS & Design Tokens**: Tailwind CSS paired with a **3-tier CSS Custom Property Design Token** architecture:
-  - **Tier 1 (Primitives)**: Palette hues, scale baselines, base spacing.
-  - **Tier 2 (Semantics)**: Purpose-driven abstractions (`--surface-primary`, `--accent-brand`, `--text-muted`, `--border-subtle`, `--status-danger`).
-  - **Tier 3 (Component/Context)**: Component-specific variables (`--header-height`, `--card-elevation`).
-  - **Hardcoded hex/raw arbitrary px in components are strictly prohibited.**
-- **State Management**: Zustand for atomic client state.
-- **Schema & Validation**: Zod for all transactional payloads, configurations, and API inputs.
-- **Icons**: `lucide-react`.
-- **Utilities**: `clsx` and `tailwind-merge` via `cn(...)` utility helper.
-
----
-
-## 4. Architectural Boundaries & Directory Isolation
-
-```
-src/
-├── app/                  # Next.js App Router (routes, layouts, providers)
-├── components/           # Atomic Design hierarchy
-│   ├── atoms/            # Pure UI building blocks (Button, Badge, StatusDot)
-│   ├── molecules/        # Interactive composites (EcosystemSwitch, XRayBadge)
-│   └── organisms/        # Domain features (Header, ChaosController, DAGVisualizer)
-├── core/                 # Pure TypeScript domain logic (NO React imports allowed)
-│   ├── circuit-breaker/  # State machine (Closed, Open, Half-Open)
-│   ├── idempotency/      # Distributed token & deduplication simulation
-│   ├── dag/              # Transaction pipeline dependency graph solver
-│   └── vpn/              # Iran IP/VPN heuristic detection simulator
-├── design-tokens/        # 3-tier CSS token definitions (tokens.css)
-├── schemas/              # Zod contracts & type definitions
-├── store/                # Zustand client stores
-└── lib/                  # Shared helper utilities (e.g., cn)
-```
-
-### Strict Rules:
-1. **`src/core/` Isolation**: Pure TypeScript logic only. **Zero React imports** (`import React from 'react'` is forbidden). Must be 100% unit-testable in isolation.
-2. **`src/schemas/` First**: All data structures crossing boundaries must have a single source of truth defined with Zod and exported as inferred TS types.
-3. **Atomic Hierarchy**: `atoms` must not import `molecules` or `organisms`. `molecules` must not import `organisms`.
+## 6. Graph & Money Logic
+- **DAG Definition:** The transaction graph is bounded. `GATEWAY ⇄ RETRY_BACKOFF` is the only cycle, resolving into a DAG of max depth (4 + 2·maxAttempts).
+- **Shaparak Codes:** 
+  - Code 11 is VIP Approved (Success).
+  - Hard Declines (Non-retryable): 14, 41, 51, 54, 55.
+  - Transient Errors (Retryable): 91, 96.
+- **Failure Routing:**
+  - Hard Decline -> Compensate ledger entry.
+  - Ambiguous State (Timeout/Invalid Response/Exhausted Retries) -> DEAD_LETTERED (DLQ). **Never auto-refund ambiguous states.**
+  - Adapter Contract Violation (Zod parse fail) -> DEAD_LETTERED.
