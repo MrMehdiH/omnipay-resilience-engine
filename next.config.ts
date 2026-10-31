@@ -1,10 +1,20 @@
 import type { NextConfig } from "next";
 
+const isGitHubPages: boolean = process.env.GITHUB_ACTIONS === "true";
+
 const nextConfig: NextConfig = {
   output: "export",
-  basePath: process.env.GITHUB_ACTIONS ? "/omnipay-resilience-engine" : "",
+  basePath: isGitHubPages ? "/omnipay-resilience-engine" : "",
   images: {
     unoptimized: true,
+  },
+  turbopack: {
+    rules: {
+      "*.css": {
+        loaders: ["@tailwindcss/turbopack"],
+        as: "*.css",
+      },
+    },
   },
 };
 
