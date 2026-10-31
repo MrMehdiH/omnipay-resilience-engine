@@ -1,4 +1,4 @@
-name: OmniPay Quality Gate CI
+name: OmniPay Quality Gate CI & Live Deploy
 
 on:
   push:
@@ -6,9 +6,18 @@ on:
   pull_request:
     branches: [ "main", "master" ]
 
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
 jobs:
-  verify-architecture:
-    name: Typecheck, Lint, Vitest & Build
+  verify-and-build:
+    name: Typecheck, Vitest & Static Export
     runs-on: ubuntu-latest
 
     steps:
@@ -33,5 +42,24 @@ jobs:
       - name: 🧪 Execute Deterministic Vitest Suite (10/10)
         run: npx vitest run src/core/dag/__tests__/transaction-dag.test.ts
 
-      - name: 🏗️ Verify Next.js Production Build
+      - name: 🏗️ Build Static Production Export
         run: npm run build
+
+      - name: 📤 Upload Static Artifact for GitHub Pages
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ./out
+
+  deploy-live:
+    name: 🚀 Deploy to GitHub Pages
+    needs: verify-and-build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: 🌐 Publish Live Demo
+        id: deployment
+        uses: actions/deploy-pages@v4
