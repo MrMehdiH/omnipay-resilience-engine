@@ -7,6 +7,7 @@
 ![Zustand](https://img.shields.io/badge/Zustand-443E38?style=for-the-badge&logo=react&logoColor=white)
 ![Vitest](https://img.shields.io/badge/Vitest-6E9F18?style=for-the-badge&logo=vitest&logoColor=white)
 ![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
+![CI Status](https://img.shields.io/github/actions/workflow/status/MrMehdiH/omnipay-resilience-engine/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=Quality%20Gate%20CI)
 
 ## 🎯 The 6-Second Pitch for CTOs & Tech Leads
 This is not a standard CRUD application. It is a strictly architected, deterministic state machine built to handle distributed system chaos (Network Partitions, Double-Clicks, VPN Geo-blocking) with graceful degradation. 
