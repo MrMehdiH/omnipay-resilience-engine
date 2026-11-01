@@ -84,6 +84,8 @@ export const DEFAULT_CHAOS_CONFIG: ChaosConfig = {
   gatewayFailureRate: 0.15,
   hardDeclineRatio: 0.3,
   networkPartition: false,
+  // Half of the timed-out attempts secretly captured money → the inquiry path is visible in demos.
+  ambiguousCaptureRate: 0.5,
   vpnDetected: false,
   smsOtpLatencyMs: 350,
 };

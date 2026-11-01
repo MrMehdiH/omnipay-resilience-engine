@@ -11,6 +11,16 @@
  * The only cycle is GATEWAY ⇄ RETRY_BACKOFF and it is bounded by `RetryPolicy.maxAttempts`,
  * so the unrolled execution graph is a DAG of depth ≤ 4 + 2·maxAttempts.
  *
+ * Ambiguous-failure contract (inquire, never blindly re-authorize):
+ *   - A gateway result with disposition UNKNOWN (timeout, socket reset, Stripe 5xx) means money
+ *     MAY have moved. The engine stays inside GATEWAY and runs a bounded status inquiry using the
+ *     same identifiers (Stripe: retrieve PaymentIntent; Shaparak: idempotent verify / inquiry).
+ *   - CAPTURED     → commit with the inquired reference (no second authorize, no compensation).
+ *   - NOT_CAPTURED → the attempt is provably unpaid → it becomes an ordinary RETRY.
+ *   - otherwise    → DEAD_LETTERED. A RETRY_BACKOFF edge is never taken from an unresolved
+ *     ambiguity, so a later definitive decline can never trigger compensation of money that an
+ *     earlier ambiguous attempt may have captured.
+ *
  * All side effects go through injected ports (cart lock, ledger, gateway, scheduler, clock,
  * RNG) → fully deterministic under test, runnable in Node, Edge and the browser.
  *
@@ -18,7 +28,9 @@
  */
 import {
   ChaosConfigSchema,
+  GatewayInquirySchema,
   GatewayOutcomeSchema,
+  MAX_DIAGNOSTIC_LENGTH,
   RetryPolicySchema,
   TransactionPayloadSchema,
   type ChaosConfig,
@@ -27,6 +39,7 @@ import {
   type DagNodeStatus,
   type Ecosystem,
   type GatewayFailure,
+  type GatewayInquiry,
   type GatewayOutcome,
   type IdempotencyKey,
   type RetryPolicy,
@@ -151,9 +164,24 @@ export interface GatewayAttemptContext {
   readonly attempt: number;
 }
 
+export interface GatewayInquiryContext {
+  /** The gateway attempt whose UNKNOWN outcome is being resolved (1-based). */
+  readonly attempt: number;
+  /** 1-based inquiry number for that attempt. */
+  readonly inquiry: number;
+}
+
 export interface GatewayPort {
   /** Must be idempotent on `tx.idempotencyKey` (forward it as Stripe `Idempotency-Key` / IPG `ResNum`). */
   authorize(tx: TransactionPayload, context: GatewayAttemptContext): Promise<unknown>;
+  /**
+   * Resolve an attempt whose outcome is UNKNOWN, using the SAME identifiers as that attempt.
+   * Must be safe to repeat (Stripe: GET the PaymentIntent; SEP: VerifyTransaction with the same
+   * RefNum, where ResultCode 2 = already verified; Mellat: bpInquiryRequest / bpVerifyRequest,
+   * where ResCode 43 = already verified). Returns an object matching `GatewayInquirySchema`.
+   * Adapters that cannot inquire omit this method → every UNKNOWN outcome is dead-lettered.
+   */
+  inquire?(tx: TransactionPayload, context: GatewayInquiryContext): Promise<unknown>;
 }
 
 export type TelemetryListener = (event: TelemetryEvent) => void;
@@ -163,6 +191,13 @@ export interface TransactionDagDependencies {
   readonly ledger: OptimisticLedgerPort;
   readonly cartLock: CartLockPort;
   readonly retryPolicy: RetryPolicy;
+  /**
+   * Bounds the status inquiries made for ONE ambiguous attempt (maxAttempts = number of inquiries,
+   * delays = full-jitter backoff between them). Keep the total well inside the PSP's auto-reversal
+   * window (SEP: 30 min, Mellat: 20 min after payment) so a PENDING answer is not mistaken for
+   * a final one. Default: 3 inquiries, 500 ms base, 5 s cap.
+   */
+  readonly inquiryPolicy?: RetryPolicy;
   /** Client egress IP looks non-Iranian (VPN on) — drives the Shaparak VPN warning. */
   readonly vpnDetected?: () => boolean;
   readonly registry?: IdempotencyRegistry<SettlementResult>;
@@ -324,10 +359,18 @@ class RunContext {
 
 const DEFAULT_CART_LEASE_MS = 5 * 60 * 1000;
 
+const DEFAULT_INQUIRY_POLICY: RetryPolicy = { maxAttempts: 3, baseDelayMs: 500, maxDelayMs: 5_000 };
+
 interface GatewayLoopResult {
   readonly outcome: GatewayOutcome;
   readonly attempts: number;
 }
+
+/** What a bounded inquiry learned about one ambiguous attempt. */
+type AmbiguityResolution =
+  | { readonly kind: 'CAPTURED'; readonly reference: string }
+  | { readonly kind: 'NOT_CAPTURED' }
+  | { readonly kind: 'UNRESOLVED'; readonly failure: GatewayFailure };
 
 export class TransactionDag {
   private readonly listeners = new Set<TelemetryListener>();
@@ -336,6 +379,7 @@ export class TransactionDag {
   private readonly ledger: OptimisticLedgerPort;
   private readonly cartLock: CartLockPort;
   private readonly retryPolicy: RetryPolicy;
+  private readonly inquiryPolicy: RetryPolicy;
   private readonly vpnDetected: () => boolean;
   private readonly registry: IdempotencyRegistry<SettlementResult>;
   private readonly scheduler: Scheduler;
@@ -348,6 +392,7 @@ export class TransactionDag {
     this.ledger = deps.ledger;
     this.cartLock = deps.cartLock;
     this.retryPolicy = RetryPolicySchema.parse(deps.retryPolicy);
+    this.inquiryPolicy = RetryPolicySchema.parse(deps.inquiryPolicy ?? DEFAULT_INQUIRY_POLICY);
     this.vpnDetected = deps.vpnDetected ?? ((): boolean => false);
     this.clock = deps.clock ?? systemClock;
     this.registry = deps.registry ?? new IdempotencyRegistry<SettlementResult>({ clock: this.clock });
@@ -489,7 +534,7 @@ export class TransactionDag {
 
     for (let attempt = 1; ; attempt += 1) {
       ctx.enter('GATEWAY');
-      const outcome = await this.callGateway(ctx.tx, attempt);
+      const outcome = await this.settleAttemptOutcome(ctx, attempt, await this.callGateway(ctx.tx, attempt));
 
       if (outcome.ok) {
         ctx.exit('GATEWAY', 'SUCCEEDED');
@@ -528,16 +573,129 @@ export class TransactionDag {
     }
   }
 
+  /**
+   * Turns a raw attempt outcome into one the retry loop may act on. UNKNOWN never leaves this
+   * method: it is resolved by inquiry into CAPTURED (→ ok), NOT_CAPTURED (→ RETRY) or an
+   * unresolved ambiguity (→ DEAD_LETTER). This is the single choke point that guarantees no
+   * second authorize and no compensation happen while money may already have moved.
+   */
+  private async settleAttemptOutcome(
+    ctx: RunContext,
+    attempt: number,
+    outcome: GatewayOutcome,
+  ): Promise<GatewayOutcome> {
+    if (outcome.ok || outcome.failure.disposition !== 'UNKNOWN') return outcome;
+
+    const ambiguous = outcome.failure;
+    const resolution = await this.resolveAmbiguity(ctx, attempt, ambiguous);
+    switch (resolution.kind) {
+      case 'CAPTURED':
+        return { ok: true, reference: resolution.reference };
+      case 'NOT_CAPTURED':
+        return {
+          ok: false,
+          failure: {
+            code: ambiguous.code,
+            disposition: 'RETRY',
+            message: `${ambiguous.message} [inquiry: not captured]`.slice(0, MAX_DIAGNOSTIC_LENGTH),
+          },
+        };
+      case 'UNRESOLVED':
+        return { ok: false, failure: resolution.failure };
+    }
+  }
+
+  /** Bounded, backoff-spaced status inquiry for one ambiguous attempt. Never moves money. */
+  private async resolveAmbiguity(
+    ctx: RunContext,
+    attempt: number,
+    ambiguous: GatewayFailure,
+  ): Promise<AmbiguityResolution> {
+    const inquire = this.gateway.inquire?.bind(this.gateway);
+    if (inquire === undefined) {
+      return {
+        kind: 'UNRESOLVED',
+        failure: {
+          code: 'AMBIGUOUS_NO_INQUIRY',
+          disposition: 'DEAD_LETTER',
+          message: `Outcome of attempt ${attempt} unknown (${ambiguous.code}) and the adapter cannot inquire.`.slice(
+            0,
+            MAX_DIAGNOSTIC_LENGTH,
+          ),
+        },
+      };
+    }
+
+    const { maxAttempts } = this.inquiryPolicy;
+    let lastObservation = 'no inquiry answered';
+
+    for (let inquiry = 1; inquiry <= maxAttempts; inquiry += 1) {
+      if (inquiry > 1) {
+        await this.scheduler.sleep(computeBackoffDelay(this.inquiryPolicy, inquiry - 1, this.random));
+      }
+
+      const answer = await this.callInquiry(inquire, ctx.tx, { attempt, inquiry });
+      this.emit({
+        ...ctx.base(),
+        type: 'GATEWAY_INQUIRY',
+        gatewayAttempt: attempt,
+        inquiry,
+        inquiryResult: answer.ok ? answer.value.state : 'ERROR',
+      });
+
+      if (!answer.ok) {
+        lastObservation = answer.diagnostic;
+        continue;
+      }
+      const result = answer.value;
+      if (result.state === 'CAPTURED') return { kind: 'CAPTURED', reference: result.reference };
+      if (result.state === 'NOT_CAPTURED') return { kind: 'NOT_CAPTURED' };
+      lastObservation = 'gateway reports PENDING';
+    }
+
+    return {
+      kind: 'UNRESOLVED',
+      failure: {
+        code: 'AMBIGUOUS_UNRESOLVED',
+        disposition: 'DEAD_LETTER',
+        message: `Attempt ${attempt} (${ambiguous.code}) still unresolved after ${maxAttempts} inquiries; last: ${lastObservation}`.slice(
+          0,
+          MAX_DIAGNOSTIC_LENGTH,
+        ),
+      },
+    };
+  }
+
+  /** Inquiry answers are an I/O boundary too: Zod-parsed, exceptions captured as diagnostics. */
+  private async callInquiry(
+    inquire: (tx: TransactionPayload, context: GatewayInquiryContext) => Promise<unknown>,
+    tx: TransactionPayload,
+    context: GatewayInquiryContext,
+  ): Promise<{ readonly ok: true; readonly value: GatewayInquiry } | { readonly ok: false; readonly diagnostic: string }> {
+    let raw: unknown;
+    try {
+      raw = await inquire(tx, context);
+    } catch (error: unknown) {
+      return { ok: false, diagnostic: toDiagnostic(error) };
+    }
+    const parsed = GatewayInquirySchema.safeParse(raw);
+    if (!parsed.success) {
+      return { ok: false, diagnostic: `INQUIRY_CONTRACT_VIOLATION: ${parsed.error.message}` };
+    }
+    return { ok: true, value: parsed.data };
+  }
+
   /** Gateway adapters are an I/O boundary: their output is Zod-parsed, exceptions are classified. */
   private async callGateway(tx: TransactionPayload, attempt: number): Promise<GatewayOutcome> {
     let raw: unknown;
     try {
       raw = await this.gateway.authorize(tx, { attempt });
     } catch (error: unknown) {
-      // Network-level fault (socket reset on VPN drop, DNS, fetch abort): transient.
+      // The adapter threw (socket reset on VPN drop, fetch abort, read timeout). We cannot know
+      // whether the gateway processed the request before the fault → ambiguous, not retryable.
       return {
         ok: false,
-        failure: { code: 'ADAPTER_EXCEPTION', disposition: 'RETRY', message: toDiagnostic(error) },
+        failure: { code: 'ADAPTER_EXCEPTION', disposition: 'UNKNOWN', message: toDiagnostic(error) },
       };
     }
 
@@ -729,43 +887,61 @@ export class InMemoryOptimisticLedger implements OptimisticLedgerPort {
 interface FailureTemplate {
   readonly code: string;
   readonly message: string;
+  /** How the engine must treat this failure (see FailureDispositionSchema). */
+  readonly disposition: GatewayFailure['disposition'];
 }
 
 /** Stripe decline_code values (hard declines → user must change card). */
 const STRIPE_HARD_DECLINES: readonly FailureTemplate[] = [
-  { code: 'do_not_honor', message: 'Card declined by issuer (do_not_honor).' },
-  { code: 'insufficient_funds', message: 'Card has insufficient funds.' },
-  { code: 'expired_card', message: 'Card has expired.' },
+  { code: 'do_not_honor', message: 'Card declined by issuer (do_not_honor).', disposition: 'DECLINE' },
+  { code: 'insufficient_funds', message: 'Card has insufficient funds.', disposition: 'DECLINE' },
+  { code: 'expired_card', message: 'Card has expired.', disposition: 'DECLINE' },
 ];
 
+/**
+ * Stripe documents HTTP 500 as indeterminate (the charge may or may not have happened), so it is
+ * UNKNOWN. HTTP 429 is rejected before execution → provably nothing happened → RETRY.
+ */
 const STRIPE_TRANSIENT: readonly FailureTemplate[] = [
-  { code: 'api_error', message: 'Stripe returned HTTP 500.' },
-  { code: 'rate_limit', message: 'Stripe returned HTTP 429.' },
+  { code: 'api_error', message: 'Stripe returned HTTP 500 (indeterminate).', disposition: 'UNKNOWN' },
+  { code: 'rate_limit', message: 'Stripe returned HTTP 429.', disposition: 'RETRY' },
 ];
 
-/** ISO-8583 response codes surfaced by Shaparak-connected issuers. */
+/**
+ * Issuer refusals as this simulator models them (ISO 8583-style numbering). Real Shaparak PSPs
+ * expose their own, PSP-specific code tables (e.g. Mellat 51 = duplicate transaction), so a real
+ * adapter must map its PSP's codes to dispositions itself.
+ */
 const SHAPARAK_HARD_DECLINES: readonly FailureTemplate[] = [
-  { code: '14', message: 'کد ۱۴: شماره کارت نامعتبر است.' },
-  { code: '41', message: 'کد ۴۱: کارت مفقودی است.' },
-  { code: '51', message: 'کد ۵۱: موجودی کافی نیست.' },
-  { code: '54', message: 'کد ۵۴: تاریخ انقضای کارت گذشته است.' },
-  { code: '55', message: 'کد ۵۵: رمز کارت (رمز پویا) اشتباه است.' },
+  { code: '14', message: 'کد ۱۴: شماره کارت نامعتبر است.', disposition: 'DECLINE' },
+  { code: '41', message: 'کد ۴۱: کارت مفقودی است.', disposition: 'DECLINE' },
+  { code: '51', message: 'کد ۵۱: موجودی کافی نیست.', disposition: 'DECLINE' },
+  { code: '54', message: 'کد ۵۴: تاریخ انقضای کارت گذشته است.', disposition: 'DECLINE' },
+  { code: '55', message: 'کد ۵۵: رمز کارت (رمز پویا) اشتباه است.', disposition: 'DECLINE' },
 ];
 
+/** The issuer/switch ANSWERED "unavailable" → it did not approve → provably unpaid → RETRY. */
 const SHAPARAK_TRANSIENT: readonly FailureTemplate[] = [
-  { code: '91', message: 'کد ۹۱: سوییچ یا صادرکننده در دسترس نیست.' },
-  { code: '96', message: 'کد ۹۶: خطای سیستمی شاپرک.' },
+  { code: '91', message: 'کد ۹۱: سوییچ یا صادرکننده در دسترس نیست.', disposition: 'RETRY' },
+  { code: '96', message: 'کد ۹۶: خطای سیستمی شاپرک.', disposition: 'RETRY' },
 ];
 
 /**
  * Deterministic chaos gateway. Latency = base + U(0, jitter) (+ SMS-OTP latency on Shaparak).
  * Evaluation order mirrors reality: partition → timeout → geo-block → issuer response.
+ *
+ * The simulator keeps the gateway's own "truth" per transaction: when a response is lost
+ * (timeout, Stripe 500) it decides, with probability `ambiguousCaptureRate`, whether the money
+ * was actually captured. The engine never sees that decision except through `inquire`, exactly
+ * like a real merchant who must ask the PSP after a timeout.
  */
 export class ChaosGatewaySimulator implements GatewayPort {
   private readonly config: ChaosConfig;
   private readonly random: RandomSource;
   private readonly scheduler: Scheduler;
   private referenceCounter = 0;
+  /** transactionId → captured reference. Absent = the gateway holds no money for it. O(1). */
+  private readonly captured = new Map<string, string>();
 
   public constructor(rawConfig: unknown, scheduler: Scheduler = realTimeScheduler) {
     this.config = ChaosConfigSchema.parse(rawConfig);
@@ -779,22 +955,24 @@ export class ChaosGatewaySimulator implements GatewayPort {
 
     if (!c.enabled) {
       await this.scheduler.sleep(c.latency.baseMs);
-      return this.approve(isIran);
+      return this.approve(tx, isIran);
     }
 
     const latencyMs =
       c.latency.baseMs + Math.floor(this.random() * c.latency.jitterMs) + (isIran ? c.smsOtpLatencyMs : 0);
 
     if (c.networkPartition) {
+      // The request never reached the gateway → nothing can have been captured.
       await this.scheduler.sleep(Math.min(latencyMs, c.gatewayTimeoutMs));
-      return this.fail('NETWORK_PARTITION', 'RETRY', 'Gateway unreachable (network partition).');
+      return this.fail('NETWORK_PARTITION', 'RETRY', 'Gateway unreachable (request not delivered).');
     }
 
     if (latencyMs > c.gatewayTimeoutMs) {
       await this.scheduler.sleep(c.gatewayTimeoutMs);
+      this.decideHiddenCapture(tx, isIran);
       return this.fail(
         isIran ? 'IPG_TIMEOUT' : '3ds_timeout',
-        'RETRY',
+        'UNKNOWN',
         `No response within ${c.gatewayTimeoutMs}ms (simulated latency ${latencyMs}ms).`,
       );
     }
@@ -811,19 +989,40 @@ export class ChaosGatewaySimulator implements GatewayPort {
         ? hard ? SHAPARAK_HARD_DECLINES : SHAPARAK_TRANSIENT
         : hard ? STRIPE_HARD_DECLINES : STRIPE_TRANSIENT;
       const template = this.pick(catalogue);
-      return this.fail(template.code, hard ? 'DECLINE' : 'RETRY', template.message);
+      if (template.disposition === 'UNKNOWN') this.decideHiddenCapture(tx, isIran);
+      return this.fail(template.code, template.disposition, template.message);
     }
 
-    return this.approve(isIran);
+    return this.approve(tx, isIran);
   }
 
-  private approve(isIran: boolean): GatewayOutcome {
+  /**
+   * Read-only status lookup by transaction (Stripe: retrieve PaymentIntent; Shaparak: idempotent
+   * verify/inquiry). Answers from the simulator's own truth; never changes it.
+   */
+  public async inquire(tx: TransactionPayload): Promise<GatewayInquiry> {
+    await this.scheduler.sleep(this.config.latency.baseMs);
+    const reference = this.captured.get(tx.transactionId);
+    return reference === undefined ? { state: 'NOT_CAPTURED' } : { state: 'CAPTURED', reference };
+  }
+
+  private decideHiddenCapture(tx: TransactionPayload, isIran: boolean): void {
+    if (this.random() < this.config.ambiguousCaptureRate) {
+      this.approve(tx, isIran); // money moved, but the response is lost on the way back
+    }
+  }
+
+  private approve(tx: TransactionPayload, isIran: boolean): GatewayOutcome {
+    const existing = this.captured.get(tx.transactionId);
+    if (existing !== undefined) {
+      // Idempotent on the transaction: a captured payment is never captured twice.
+      return { ok: true, reference: existing };
+    }
     this.referenceCounter += 1;
     const suffix = Math.floor(this.random() * 0xffffff).toString(16).padStart(6, '0');
-    return {
-      ok: true,
-      reference: `${isIran ? 'shp_rrn' : 'pi'}_${this.referenceCounter.toString(36)}${suffix}`,
-    };
+    const reference = `${isIran ? 'shp_rrn' : 'pi'}_${this.referenceCounter.toString(36)}${suffix}`;
+    this.captured.set(tx.transactionId, reference);
+    return { ok: true, reference };
   }
 
   private fail(code: string, disposition: GatewayFailure['disposition'], message: string): GatewayOutcome {

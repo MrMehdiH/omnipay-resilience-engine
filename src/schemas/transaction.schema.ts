@@ -130,8 +130,17 @@ export const ChaosConfigSchema = z.strictObject({
   gatewayFailureRate: RateSchema,
   /** Of the failures, the share that are hard declines (non-retryable). */
   hardDeclineRatio: RateSchema,
-  /** Every gateway attempt is lost in transit while true. */
+  /**
+   * Every gateway request is lost BEFORE reaching the gateway while true (connection refused,
+   * DNS failure). Nothing was sent, so no money can have moved → safely retryable.
+   */
   networkPartition: z.boolean(),
+  /**
+   * Of the attempts whose response is lost (timeout, Stripe 5xx), the share where the gateway
+   * had in fact captured the money. This is hidden truth: the engine can only learn it through
+   * a status inquiry (Stripe: retrieve the PaymentIntent; Shaparak: idempotent verify/inquiry).
+   */
+  ambiguousCaptureRate: RateSchema,
   /** Iran only: client egress IP is outside Iran → IPG callback is geo-blocked. */
   vpnDetected: z.boolean(),
   /** Iran only: dynamic-password (رمز پویا) SMS delivery latency added to each attempt. */
@@ -185,11 +194,19 @@ export type DagNodeState = z.infer<typeof DagNodeStateSchema>;
  * ═══════════════════════════════════════════════════════════════════════════ */
 
 /**
- * RETRY       → transient (5xx, timeout, partition): back off and retry.
- * DECLINE     → definitive (do_not_honor, Shaparak 11/14/41/55, geo-block): needs user action.
- * DEAD_LETTER → ambiguous money state: park for manual reconciliation, never auto-retry.
+ * RETRY       → the gateway answered "not approved, try later" OR the request provably never
+ *               reached it (connection refused, HTTP 429). No money moved → safe to retry.
+ * UNKNOWN     → the response was lost after the request may have been processed (timeout,
+ *               socket reset, Stripe 5xx — which Stripe itself calls indeterminate). Money MAY
+ *               have moved. Never re-authorize blindly: resolve with a status inquiry first.
+ * DECLINE     → definitive refusal that needs user action (do_not_honor, expired card, geo-block).
+ * DEAD_LETTER → money state cannot be determined automatically: park for manual reconciliation.
+ *
+ * Gateway result codes are PSP-specific, not a global code space: the same number means
+ * different things per PSP (Mellat 11 = invalid card number, SEP callback 11 = TokenRequired,
+ * Mellat 51 = duplicate transaction). Each adapter owns its own code → disposition mapping.
  */
-export const FailureDispositionSchema = z.enum(['RETRY', 'DECLINE', 'DEAD_LETTER']);
+export const FailureDispositionSchema = z.enum(['RETRY', 'UNKNOWN', 'DECLINE', 'DEAD_LETTER']);
 export type FailureDisposition = z.infer<typeof FailureDispositionSchema>;
 
 export const GatewayFailureSchema = z.strictObject({
@@ -204,6 +221,22 @@ export const GatewayOutcomeSchema = z.discriminatedUnion('ok', [
   z.strictObject({ ok: z.literal(false), failure: GatewayFailureSchema }),
 ]);
 export type GatewayOutcome = z.infer<typeof GatewayOutcomeSchema>;
+
+/**
+ * Result of a read-only status inquiry for an attempt whose outcome is UNKNOWN.
+ *  CAPTURED     → the gateway holds the money; commit with this reference.
+ *  NOT_CAPTURED → the gateway definitively has no successful payment for this attempt.
+ *  PENDING      → the gateway cannot tell yet (still processing, OTP not entered…): ask again later.
+ */
+export const GatewayInquiryStateSchema = z.enum(['CAPTURED', 'NOT_CAPTURED', 'PENDING']);
+export type GatewayInquiryState = z.infer<typeof GatewayInquiryStateSchema>;
+
+export const GatewayInquirySchema = z.discriminatedUnion('state', [
+  z.strictObject({ state: z.literal('CAPTURED'), reference: z.string().min(1).max(128) }),
+  z.strictObject({ state: z.literal('NOT_CAPTURED') }),
+  z.strictObject({ state: z.literal('PENDING') }),
+]);
+export type GatewayInquiry = z.infer<typeof GatewayInquirySchema>;
 
 export const SettlementOutcomeSchema = z.enum(['COMMITTED', 'DECLINED', 'DEAD_LETTERED', 'ABORTED']);
 export type SettlementOutcome = z.infer<typeof SettlementOutcomeSchema>;
@@ -297,6 +330,15 @@ export const TelemetryEventSchema = z.discriminatedUnion('type', [
     attempt: z.number().int().positive(),
     delayMs: z.number().int().nonnegative(),
     failureCode: z.string().min(1).max(64),
+  }),
+  TelemetryBaseSchema.extend({
+    type: z.literal('GATEWAY_INQUIRY'),
+    /** Gateway attempt whose UNKNOWN outcome is being resolved. */
+    gatewayAttempt: z.number().int().positive(),
+    /** 1-based inquiry number for that attempt. */
+    inquiry: z.number().int().positive(),
+    /** ERROR = the inquiry itself threw or broke the adapter contract. */
+    inquiryResult: z.enum(['CAPTURED', 'NOT_CAPTURED', 'PENDING', 'ERROR']),
   }),
   TelemetryBaseSchema.extend({
     type: z.literal('IDEMPOTENCY_REPLAY'),
