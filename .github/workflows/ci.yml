@@ -2,52 +2,56 @@ name: OmniPay Quality Gate CI & Live Deploy
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main"]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: ["main"]
+  workflow_dispatch:
 
+# Least privilege by default: every job gets read-only repo access unless it opts in below.
 permissions:
   contents: read
-  pages: write
-  id-token: write
-
-concurrency:
-  group: "pages"
-  cancel-in-progress: false
 
 jobs:
   verify-and-build:
-    name: Typecheck, Vitest & Static Export
+    name: Lint, Typecheck, Test & Static Export
     runs-on: ubuntu-latest
+    timeout-minutes: 15
+    # One run per ref; a newer push to the same PR cancels the stale run.
+    concurrency:
+      group: ci-${{ github.workflow }}-${{ github.ref }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
     steps:
       - name: 📥 Checkout Repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
 
       - name: ⚙️ Setup Node.js 22
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
-          node-version: '22'
-          cache: 'npm'
+          node-version: "22"
+          cache: "npm"
 
-      - name: 📦 Install Dependencies
-        run: npm install --legacy-peer-deps
+      # Reproducible install straight from package-lock.json; fails if the lockfile is out of sync.
+      - name: 📦 Install Dependencies (lockfile-exact)
+        run: npm ci
 
-      - name: 🧬 Generate Next.js Route Types
-        run: npx next typegen
+      - name: 🧹 Run ESLint Architectural Checks
+        run: npm run lint
 
       - name: 🛡️ Verify Zero-Any TypeScript Contract
-        run: npx tsc --noEmit
+        run: npm run typecheck
 
-      - name: 🧪 Execute Deterministic Vitest Suite (10/10)
-        run: npx vitest run src/core/dag/__tests__/transaction-dag.test.ts
+      - name: 🧪 Execute Deterministic Vitest Suite
+        run: npm test
 
       - name: 🏗️ Build Static Production Export
         run: npm run build
 
       - name: 📤 Upload Static Artifact for GitHub Pages
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-pages-artifact@v3
+        uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3.0.1
         with:
           path: ./out
 
@@ -56,10 +60,19 @@ jobs:
     needs: verify-and-build
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Only the deploy job may write to Pages; PR runs never receive these scopes.
+    permissions:
+      pages: write
+      id-token: write
+    # Deploys queue instead of cancelling, so a production deployment is never cut off midway.
+    concurrency:
+      group: pages
+      cancel-in-progress: false
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - name: 🌐 Publish Live Demo
         id: deployment
-        uses: actions/deploy-pages@v4
+        uses: actions/deploy-pages@d6db90164ac5ed86f2b6aed7e0febac5b3c0c03e # v4.0.5
