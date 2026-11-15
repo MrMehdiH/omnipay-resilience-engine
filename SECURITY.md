@@ -5,7 +5,8 @@ OmniPay Resilience Engine is an **in-browser simulation** of payment-resilience 
 and Iranian (Shaparak / SnappPay) rails. It is published as a static site on GitHub Pages.
 
 **It does not process real payments.** It has no backend, collects no card data, sets no cookies,
-uses no browser storage and makes no network calls at runtime. All gateway adapters are simulators.
+uses no browser storage and makes no runtime API calls for payments or IP detection. Static
+assets are loaded from the host; fonts are downloaded at build time. All gateway adapters are simulators.
 
 This policy explains what counts as a vulnerability in that context, how to report one, and what
 to expect after you do.
@@ -72,7 +73,8 @@ claims** and **the supply chain that builds and deploys it**.
 These are treated as security bugs even though the gateways are simulated, because the core is
 written to be reusable with real adapters. Report any input or interleaving that makes the engine:
 
-- execute the gateway **more than once** for one idempotency key (broken single-flight / replay);
+- start independent payment runs for concurrent duplicates of one idempotency key (broken
+  single-flight / replay); explicitly safe retries within one run are expected;
 - accept a **mutated payload** under an existing key without `IdempotencyConflictError`;
 - **re-authorize after an ambiguous outcome** (timeout / socket reset) without a status inquiry first;
 - **auto-refund (compensate)** a transaction whose outcome is ambiguous instead of dead-lettering it;
@@ -112,7 +114,7 @@ These properties are deliberate. Changes that weaken them need a test and a just
 | --- | --- | --- |
 | Duplicate charges (double-click, impatient retry) | Intent-scoped idempotency key, O(1) single-flight registry; concurrent duplicates are coalesced, late duplicates replayed | `src/core/dag/idempotency-engine.ts` |
 | Key reuse with a tampered body | Canonical-JSON fingerprint; mismatch → `IdempotencyConflictError` | same |
-| Double charge after a lost response | Ambiguous outcomes (`INQUIRE`) go to a status inquiry before any re-authorize; unresolved → DLQ | `src/core/dag/transaction-dag.ts` |
+| Double charge after a lost response | Ambiguous outcomes (`UNKNOWN`) go to a status inquiry before any re-authorize; unresolved → DLQ | `src/core/dag/transaction-dag.ts` |
 | Refunding money that may have moved | Ambiguous or exhausted states are parked, never compensated | same |
 | Untrusted adapter output | Every gateway and inquiry response is Zod-parsed; a contract violation becomes a dead letter, not a guess | `src/schemas/transaction.schema.ts` |
 | Malformed input | Strict Zod schemas (unknown keys rejected); integer minor-unit money; HTTPS-only IPG callbacks; Persian-digit normalisation for Iranian mobiles | same |
@@ -127,8 +129,8 @@ These properties are deliberate. Changes that weaken them need a test and a just
 
 Known gaps, listed in the open so reporters do not need to rediscover them:
 
-- [ ] Scope `GITHUB_TOKEN` per job: `contents: read` for verify, and `pages: write` + `id-token: write` only on the deploy job.
-- [ ] Pin third-party GitHub Actions to full commit SHAs instead of major-version tags.
+- [x] Scope `GITHUB_TOKEN` per job: `contents: read` for verify, and `pages: write` + `id-token: write` only on the deploy job.
+- [x] Pin third-party GitHub Actions to full commit SHAs instead of major-version tags.
 - [ ] Enable Dependabot (npm + GitHub Actions) and a scheduled `npm audit --omit=dev` check.
 - [ ] Enable CodeQL (JavaScript/TypeScript) and secret scanning with push protection.
 - [ ] Protect `main`: require PRs and passing status checks, and block force-pushes.

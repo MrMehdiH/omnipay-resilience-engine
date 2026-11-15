@@ -214,10 +214,9 @@ export class IdempotencyRegistry<TResult> {
     return { inFlight: this.inFlight.size, completed: this.completed.size };
   }
 
+  /** Clear cached results without releasing live claims or allowing duplicate work. */
   public clear(): void {
     this.completed.clear();
-    // In-flight promises still resolve for their awaiters; they just won't be recorded.
-    this.inFlight.clear();
   }
 
   /* ─────────────────────────────── internals ─────────────────────────────── */
@@ -233,7 +232,7 @@ export class IdempotencyRegistry<TResult> {
     await Promise.resolve();
     try {
       const result = await operation();
-      // Only record if our claim survived (a `clear()` mid-flight voids it).
+      // Only record if this operation still owns its claim.
       if (this.inFlight.get(key) === claim.entry) {
         this.recordCompletion(key, fingerprint, result);
       }

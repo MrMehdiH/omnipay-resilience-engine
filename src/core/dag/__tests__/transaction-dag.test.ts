@@ -131,6 +131,7 @@ function chaosConfig(overrides: Partial<ChaosConfig> = {}): ChaosConfig {
     gatewayFailureRate: 0,
     hardDeclineRatio: 0,
     networkPartition: false,
+    ambiguousCaptureRate: 0,
     vpnDetected: false,
     smsOtpLatencyMs: 0,
     ...overrides,

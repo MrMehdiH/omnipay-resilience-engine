@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   Flame,
   Radio,
@@ -20,6 +21,7 @@ import {
   useEcosystemStore,
   ChaosPreset,
   CHAOS_PRESETS,
+  DEFAULT_CHAOS_CONFIG,
 } from "@/store/useEcosystemStore";
 import { Badge } from "@/components/atoms/Badge";
 import { StatusDot } from "@/components/atoms/StatusDot";
@@ -36,20 +38,28 @@ export function ChaosController() {
     applyChaosPreset,
     executeSimulation,
     isSimulating,
-  } = useEcosystemStore();
+  } = useEcosystemStore(useShallow((state) => ({
+    currentEcosystem: state.currentEcosystem,
+    xRayMode: state.xRayMode,
+    chaosConfig: state.chaosConfig,
+    updateChaosConfig: state.updateChaosConfig,
+    resetChaosConfig: state.resetChaosConfig,
+    applyChaosPreset: state.applyChaosPreset,
+    executeSimulation: state.executeSimulation,
+    isSimulating: state.isSimulating,
+  })));
 
   const isIran = currentEcosystem === "IRAN_SHAPARAK";
 
-  // Quick preset detector to highlight active preset if match
+  // Compare the complete preset, including latency, so a manually edited preset is not mislabeled.
   const activePreset = React.useMemo<ChaosPreset | null>(() => {
     const keys = Object.keys(CHAOS_PRESETS) as ChaosPreset[];
     for (const key of keys) {
       const p = CHAOS_PRESETS[key];
-      const match =
-        (p.networkPartition === undefined || p.networkPartition === chaosConfig.networkPartition) &&
-        (p.vpnDetected === undefined || p.vpnDetected === chaosConfig.vpnDetected) &&
-        (p.gatewayFailureRate === undefined || Math.abs(p.gatewayFailureRate - chaosConfig.gatewayFailureRate) < 0.01) &&
-        (p.hardDeclineRatio === undefined || Math.abs(p.hardDeclineRatio - chaosConfig.hardDeclineRatio) < 0.01);
+      const expected = { ...DEFAULT_CHAOS_CONFIG, ...p };
+      const match = Object.entries(expected).every(([field, value]) =>
+        field === "seed" || JSON.stringify(chaosConfig[field as keyof typeof chaosConfig]) === JSON.stringify(value)
+      );
       if (match) return key;
     }
     return null;
@@ -114,6 +124,7 @@ export function ChaosController() {
           <button
             type="button"
             onClick={() => updateChaosConfig({ enabled: !chaosConfig.enabled })}
+            aria-pressed={chaosConfig.enabled}
             className={cn(
               "flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-semibold transition-all border cursor-pointer",
               chaosConfig.enabled
@@ -132,7 +143,7 @@ export function ChaosController() {
             />
             <span>{chaosConfig.enabled ? "CHAOS ARMED" : "BYPASS (OFF)"}</span>
           </button>
-          <span className="text-[10px] font-mono text-text-subtle">
+          <span className="text-caption font-mono text-text-subtle">
             PRNG: #{chaosConfig.seed.toString(16).slice(0, 6)}
           </span>
         </div>
@@ -146,11 +157,11 @@ export function ChaosController() {
               <Cpu className="w-3.5 h-3.5 text-purple-400" />
               <span>[CTO ARCHITECTURE: Circuit Breaker & Chaos Simulator]</span>
             </div>
-            <span className="text-[10px] text-purple-300/80">
+            <span className="text-caption text-purple-300/80">
               Deterministic Mulberry32
             </span>
           </div>
-          <p className="text-[11px] leading-relaxed text-purple-200/80">
+          <p className="text-detail leading-relaxed text-purple-200/80">
             Simulates distributed failure topologies with bounded recovery cycles:
             <code className="text-white mx-1">CLOSED</code> (normal) →
             <code className="text-white mx-1">OPEN</code> (fast-fail) →
@@ -163,7 +174,7 @@ export function ChaosController() {
 
       {/* Preset Quick Actions Bar */}
       <div className="my-3 space-y-1.5">
-        <div className="flex items-center justify-between text-[11px] font-mono text-text-subtle">
+        <div className="flex items-center justify-between text-detail font-mono text-text-subtle">
           <span className="flex items-center gap-1">
             <Zap className="w-3 h-3 text-brand" />
             {isIran ? "سناریوهای از پیش تنظیم شده:" : "Quick Fault Scenarios:"}
@@ -292,15 +303,16 @@ export function ChaosController() {
 
           <div className="space-y-2">
             <div>
-              <div className="flex justify-between text-[11px] font-mono text-text-muted mb-1">
+              <div className="flex justify-between text-detail font-mono text-text-muted mb-1">
                 <span>{isIran ? "تاخیر پایه:" : "Base Latency:"}</span>
                 <span className="text-text-primary">{chaosConfig.latency.baseMs}ms</span>
               </div>
               <input
+                  aria-label={isIran ? "تاخیر پایه" : "Base latency"}
                 type="range"
                 min="0"
                 max="5000"
-                step="50"
+                step="1"
                 value={chaosConfig.latency.baseMs}
                 onChange={(e) =>
                   updateChaosConfig({
@@ -315,15 +327,16 @@ export function ChaosController() {
             </div>
 
             <div>
-              <div className="flex justify-between text-[11px] font-mono text-text-muted mb-1">
+              <div className="flex justify-between text-detail font-mono text-text-muted mb-1">
                 <span>{isIran ? "نوسان تصادفی (Jitter):" : "Random Jitter:"}</span>
                 <span className="text-text-primary">{chaosConfig.latency.jitterMs}ms</span>
               </div>
               <input
+                  aria-label={isIran ? "نوسان تاخیر" : "Latency jitter"}
                 type="range"
                 min="0"
                 max="2500"
-                step="50"
+                step="1"
                 value={chaosConfig.latency.jitterMs}
                 onChange={(e) =>
                   updateChaosConfig({
@@ -340,15 +353,16 @@ export function ChaosController() {
             {/* Iranian dynamic password OTP latency or Gateway Timeout in Global */}
             {isIran ? (
               <div className="pt-1.5 border-t border-border-subtle/60">
-                <div className="flex justify-between text-[11px] font-mono text-text-muted mb-1">
+                <div className="flex justify-between text-detail font-mono text-text-muted mb-1">
                   <span className="text-amber-300">تاخیر پیامک رمز پویا (هریم):</span>
                   <span className="text-amber-300 font-bold">{chaosConfig.smsOtpLatencyMs}ms</span>
                 </div>
                 <input
+                  aria-label={isIran ? "تاخیر رمز پویا" : "SMS OTP latency"}
                   type="range"
                   min="0"
                   max="5000"
-                  step="100"
+                  step="1"
                   value={chaosConfig.smsOtpLatencyMs}
                   onChange={(e) =>
                     updateChaosConfig({ smsOtpLatencyMs: Number(e.target.value) })
@@ -358,13 +372,14 @@ export function ChaosController() {
               </div>
             ) : (
               <div className="pt-1.5 border-t border-border-subtle/60">
-                <div className="flex justify-between text-[11px] font-mono text-text-muted mb-1">
+                <div className="flex justify-between text-detail font-mono text-text-muted mb-1">
                   <span>3DS / Gateway Timeout:</span>
                   <span className="text-text-primary font-bold">
                     {chaosConfig.gatewayTimeoutMs}ms
                   </span>
                 </div>
                 <input
+                  aria-label={isIran ? "مهلت پاسخ درگاه" : "Gateway timeout"}
                   type="range"
                   min="500"
                   max="10000"
@@ -403,13 +418,14 @@ export function ChaosController() {
 
           <div className="space-y-2">
             <div>
-              <div className="flex justify-between text-[11px] font-mono text-text-muted mb-1">
+              <div className="flex justify-between text-detail font-mono text-text-muted mb-1">
                 <span>{isIran ? "نرخ عدم موفقیت تلاش:" : "Gateway Failure Rate:"}</span>
                 <span className="text-text-primary">
                   {Math.round(chaosConfig.gatewayFailureRate * 100)}%
                 </span>
               </div>
               <input
+                  aria-label={isIran ? "نرخ خطای درگاه" : "Gateway failure rate"}
                 type="range"
                 min="0"
                 max="1"
@@ -423,13 +439,14 @@ export function ChaosController() {
             </div>
 
             <div>
-              <div className="flex justify-between text-[11px] font-mono text-text-muted mb-1">
+              <div className="flex justify-between text-detail font-mono text-text-muted mb-1">
                 <span>{isIran ? "سهم خطای قطعی (Hard Decline):" : "Hard Decline Share:"}</span>
                 <span className="text-text-primary">
                   {Math.round(chaosConfig.hardDeclineRatio * 100)}%
                 </span>
               </div>
               <input
+                  aria-label={isIran ? "سهم رد قطعی" : "Hard decline ratio"}
                 type="range"
                 min="0"
                 max="1"
@@ -443,7 +460,7 @@ export function ChaosController() {
             </div>
 
             {/* Error Catalogue Snippet */}
-            <div className="pt-1.5 border-t border-border-subtle/60 flex items-center justify-between text-[10px] font-mono text-text-subtle">
+            <div className="pt-1.5 border-t border-border-subtle/60 flex items-center justify-between text-caption font-mono text-text-subtle">
               <span>{isIran ? "کدهای خطای شاپرک:" : "Simulated Codes:"}</span>
               <span className="text-text-muted">
                 {isIran ? "14, 41, 51, 54, 55 (قطعی) / 91 (تلاش)" : "do_not_honor, 500, 429, 3ds_timeout"}
@@ -473,7 +490,7 @@ export function ChaosController() {
                 {isIran ? "قطع کامل ارتباط (Partition)" : "Network Partition"}
               </span>
             </div>
-            <p className="text-[11px] text-text-muted">
+            <p className="text-detail text-text-muted">
               {isIran
                 ? "قطع فیزیکی ارتباط با مرکز شاپرک (سوئیچ بانکی در دسترس نیست)"
                 : "Simulates socket drops & packet loss to Stripe API Edge."}
@@ -485,6 +502,9 @@ export function ChaosController() {
             onClick={() =>
               updateChaosConfig({ networkPartition: !chaosConfig.networkPartition })
             }
+            role="switch"
+            aria-label={isIran ? "شبیه‌سازی قطع شبکه" : "Simulate network partition"}
+            aria-checked={chaosConfig.networkPartition}
             className={cn(
               "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
               chaosConfig.networkPartition ? "bg-rose-500" : "bg-surface-tertiary"
@@ -520,12 +540,12 @@ export function ChaosController() {
                 {isIran ? "آی‌پی غیرایران / فیلترشکن" : "VPN / Geo-Block Filter"}
               </span>
               {isIran && (
-                <Badge variant="warning" size="sm" className="font-mono text-[9px]">
+                <Badge variant="warning" size="sm" className="font-mono text-micro">
                   شاپرک
                 </Badge>
               )}
             </div>
-            <p className="text-[11px] text-text-muted">
+            <p className="text-detail text-text-muted">
               {isIran
                 ? "بلاک امنیتی تراکنش در صورت اتصال فیلترشکن (Callback Geo-Fence)"
                 : "Simulate non-domestic egress routing & callback security."}
@@ -537,6 +557,9 @@ export function ChaosController() {
             onClick={() =>
               updateChaosConfig({ vpnDetected: !chaosConfig.vpnDetected })
             }
+            role="switch"
+            aria-label={isIran ? "شبیه‌سازی خطای VPN" : "Simulate VPN fault"}
+            aria-checked={chaosConfig.vpnDetected}
             className={cn(
               "relative inline-flex h-6 w-11 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none",
               chaosConfig.vpnDetected ? "bg-amber-500" : "bg-surface-tertiary"

@@ -16,7 +16,7 @@ Zero-Auth Interactive Sandbox demonstrating Idempotency, DAG-based transaction s
 ## 4. Strict Technical Constraints
 - **Stack:** Next.js 16.4.2 (App Router), TypeScript (strict: true, zero any), Tailwind CSS, Zustand, Zod, Vitest.
 - **Styling:** 3-tier CSS custom property Design Tokens. Absolutely NO hardcoded hex/px values.
-- **State Management:** Shared states like `vpnDetected` must be read from a single Zustand atom to prevent desync between `ChaosConfig` and DAG dependencies.
+- **State Management:** Shared settings come from the Zustand chaos configuration. Each run snapshots its settings so edits affect the next run consistently across the simulator and DAG.
 
 ## 5. UI & Core Contracts
 - **Intent-Based Identity:** `transactionId` and `idempotencyKey` MUST be generated ONCE per purchase intent, not per click. Fingerprint hashes payload to detect manipulation.
@@ -25,10 +25,7 @@ Zero-Auth Interactive Sandbox demonstrating Idempotency, DAG-based transaction s
 
 ## 6. Graph & Money Logic
 - **DAG Definition:** The transaction graph is bounded. `GATEWAY ⇄ RETRY_BACKOFF` is the only cycle, resolving into a DAG of max depth (4 + 2·maxAttempts).
-- **Shaparak Codes:** 
-  - Code 11 is VIP Approved (Success).
-  - Hard Declines (Non-retryable): 14, 41, 51, 54, 55.
-  - Transient Errors (Retryable): 91, 96.
+- **Simulated Iranian Codes:** The demo catalogue uses ISO-style refusal numbers. Real PSP codes are provider-specific; never infer one provider's disposition from another provider's code table. Map real codes only in an adapter backed by that PSP's documentation.
 - **Failure Routing:**
   - Hard Decline -> Compensate ledger entry.
   - Ambiguous State (Timeout/Invalid Response/Exhausted Retries) -> DEAD_LETTERED (DLQ). **Never auto-refund ambiguous states.**

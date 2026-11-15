@@ -1,17 +1,22 @@
 "use client";
 
 import * as React from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Eye, EyeOff, Sparkles } from "lucide-react";
 import { useEcosystemStore } from "@/store/useEcosystemStore";
 import { cn } from "@/lib/utils";
 
 export function XRayToggle() {
-  const { xRayMode, toggleXRayMode } = useEcosystemStore();
+  const { xRayMode, toggleXRayMode } = useEcosystemStore(useShallow((state) => ({
+    xRayMode: state.xRayMode,
+    toggleXRayMode: state.toggleXRayMode,
+  })));
 
   return (
     <button
       type="button"
       onClick={toggleXRayMode}
+      aria-pressed={xRayMode}
       className={cn(
         "group relative flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer",
         xRayMode
@@ -29,12 +34,12 @@ export function XRayToggle() {
       </div>
 
       <div className="flex items-center gap-1.5">
-        <span className="font-mono text-[11px] uppercase tracking-wide">
+        <span className="font-mono text-detail uppercase tracking-wide">
           Recruiter X-Ray
         </span>
         <span
           className={cn(
-            "text-[9px] uppercase px-1.5 py-0.5 rounded font-mono font-bold tracking-wider",
+            "text-micro uppercase px-1.5 py-0.5 rounded font-mono font-bold tracking-wider",
             xRayMode
               ? "bg-purple-500 text-purple-950"
               : "bg-surface-elevated text-text-subtle"

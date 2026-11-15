@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   TrendingUp,
   Percent,
@@ -26,7 +27,11 @@ import {
 } from "@/core/growth-engine/bnpl-calculator";
 
 export function GrowthCalculator() {
-  const { currentEcosystem, config, xRayMode } = useEcosystemStore();
+  const { currentEcosystem, config, xRayMode } = useEcosystemStore(useShallow((state) => ({
+    currentEcosystem: state.currentEcosystem,
+    config: state.config,
+    xRayMode: state.xRayMode,
+  })));
   const isIran = currentEcosystem === "IRAN_SHAPARAK";
 
   // Active tooltip state for CTO X-Ray math explanations
@@ -206,7 +211,7 @@ export function GrowthCalculator() {
               CLOSED-FORM SOLVER
             </Badge>
           </div>
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-[11px] leading-relaxed text-purple-200/90 pt-1">
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3 text-detail leading-relaxed text-purple-200/90 pt-1">
             <div className="p-2.5 rounded-xl bg-purple-900/30 border border-purple-500/20">
               <span className="font-bold text-purple-300 block mb-1">
                 1. Viral Multiplier (M):
@@ -241,7 +246,7 @@ export function GrowthCalculator() {
                 <Percent className="w-3.5 h-3.5 text-brand" />
                 {isIran ? "سبد خرید و نفوذ اقساطی (BNPL)" : "Checkout Funnel & BNPL Uplift"}
               </span>
-              <span className="text-[11px] font-mono text-brand font-semibold">
+              <span className="text-detail font-mono text-brand font-semibold">
                 {config.bnplProvider}
               </span>
             </div>
@@ -252,10 +257,11 @@ export function GrowthCalculator() {
                 <div className="flex justify-between text-xs font-mono text-text-muted mb-1">
                   <span>{isIran ? "میانگین سبد (AOV):" : "Baseline AOV:"}</span>
                   <span className="text-text-primary font-bold">
-                    {formatMinor(inputs.baselineAovMinor, config.currency === "TOMAN" ? "IRT" : "USD")}
+                    {formatMinor(inputs.baselineAovMinor, config.currency)}
                   </span>
                 </div>
                 <input
+                  aria-label={isIran ? "میانگین مبلغ سفارش" : "Average order value"}
                   type="range"
                   min={isIran ? 100000 : 1000}
                   max={isIran ? 3000000 : 30000}
@@ -275,10 +281,11 @@ export function GrowthCalculator() {
                   </span>
                 </div>
                 <input
+                  aria-label={isIran ? "سهم پرداخت اقساطی" : "BNPL adoption rate"}
                   type="range"
                   min="0"
                   max="0.8"
-                  step="0.02"
+                  step="0.01"
                   value={inputs.bnplAdoptionRate}
                   onChange={(e) => updateInput("bnplAdoptionRate", Number(e.target.value))}
                   className="w-full h-1.5 bg-surface-tertiary rounded-lg appearance-none cursor-pointer accent-brand"
@@ -294,6 +301,7 @@ export function GrowthCalculator() {
                   </span>
                 </div>
                 <input
+                  aria-label={isIran ? "افزایش مبلغ سفارش اقساطی" : "BNPL order value uplift"}
                   type="range"
                   min="0"
                   max="1"
@@ -313,6 +321,7 @@ export function GrowthCalculator() {
                   </span>
                 </div>
                 <input
+                  aria-label={isIran ? "افزایش نرخ تبدیل" : "Conversion uplift"}
                   type="range"
                   min="0"
                   max="0.5"
@@ -332,6 +341,7 @@ export function GrowthCalculator() {
                   </span>
                 </div>
                 <input
+                  aria-label={isIran ? "حاشیه سود ناخالص" : "Gross margin"}
                   type="range"
                   min="0.1"
                   max="0.9"
@@ -351,6 +361,7 @@ export function GrowthCalculator() {
                   </span>
                 </div>
                 <input
+                  aria-label={isIran ? "کارمزد پرداخت اقساطی" : "BNPL merchant fee"}
                   type="range"
                   min="0.01"
                   max="0.1"
@@ -370,7 +381,7 @@ export function GrowthCalculator() {
                 <Users className="w-3.5 h-3.5 text-brand" />
                 {isIran ? "حلقه ارجاع ویروسی و جذب مشتری (Viral Loop & CAC)" : "Acquisition & Viral Growth Loop"}
               </span>
-              <span className="text-[11px] font-mono text-text-subtle">
+              <span className="text-detail font-mono text-text-subtle">
                 K-Factor = {kValue.toFixed(3)}
               </span>
             </div>
@@ -381,14 +392,15 @@ export function GrowthCalculator() {
                 <div className="flex justify-between text-xs font-mono text-text-muted mb-1">
                   <span>{isIran ? "هزینه جذب مستقیم (Paid CAC):" : "Direct Paid CAC:"}</span>
                   <span className="text-text-primary font-bold">
-                    {formatMinor(inputs.paidCacMinor, config.currency === "TOMAN" ? "IRT" : "USD")}
+                    {formatMinor(inputs.paidCacMinor, config.currency)}
                   </span>
                 </div>
                 <input
+                  aria-label={isIran ? "هزینه جذب مشتری" : "Paid acquisition cost"}
                   type="range"
                   min={isIran ? 50000 : 1000}
                   max={isIran ? 1000000 : 15000}
-                  step={isIran ? 25000 : 250}
+                  step={isIran ? 1000 : 250}
                   value={inputs.paidCacMinor}
                   onChange={(e) => updateInput("paidCacMinor", Number(e.target.value))}
                   className="w-full h-1.5 bg-surface-tertiary rounded-lg appearance-none cursor-pointer accent-brand"
@@ -400,10 +412,11 @@ export function GrowthCalculator() {
                 <div className="flex justify-between text-xs font-mono text-text-muted mb-1">
                   <span>{isIran ? "پاداش دعوت (Referral Reward):" : "Referral Reward Cost:"}</span>
                   <span className="text-text-primary font-bold">
-                    {formatMinor(inputs.referralRewardMinor, config.currency === "TOMAN" ? "IRT" : "USD")}
+                    {formatMinor(inputs.referralRewardMinor, config.currency)}
                   </span>
                 </div>
                 <input
+                  aria-label={isIran ? "پاداش معرفی" : "Referral reward"}
                   type="range"
                   min="0"
                   max={isIran ? 200000 : 3500}
@@ -423,6 +436,7 @@ export function GrowthCalculator() {
                   </span>
                 </div>
                 <input
+                  aria-label={isIran ? "دعوت به ازای مشتری" : "Invites per customer"}
                   type="range"
                   min="0"
                   max="8"
@@ -442,6 +456,7 @@ export function GrowthCalculator() {
                   </span>
                 </div>
                 <input
+                  aria-label={isIran ? "نرخ تبدیل دعوت" : "Invite conversion rate"}
                   type="range"
                   min="0"
                   max="0.3"
@@ -461,6 +476,7 @@ export function GrowthCalculator() {
                   </span>
                 </div>
                 <input
+                  aria-label={isIran ? "نرخ ماندگاری سالانه" : "Annual retention rate"}
                   type="range"
                   min="0.2"
                   max="0.9"
@@ -480,6 +496,7 @@ export function GrowthCalculator() {
                   </span>
                 </div>
                 <input
+                  aria-label={isIran ? "نرخ تنزیل سالانه" : "Annual discount rate"}
                   type="range"
                   min="0.05"
                   max="0.6"
@@ -538,13 +555,13 @@ export function GrowthCalculator() {
               <div className="grid grid-cols-2 gap-2.5">
                 {/* Metric 1: Blended LTV */}
                 <div className="p-3 rounded-xl bg-surface-secondary/70 border border-border-subtle space-y-1">
-                  <span className="text-[11px] font-mono text-text-subtle block">
+                  <span className="text-detail font-mono text-text-subtle block">
                     {isIran ? "ارزش چرخه عمر (LTV):" : "Discounted LTV:"}
                   </span>
                   <div className="text-sm font-bold text-text-primary font-mono truncate">
                     {formatMinor(report.ltvMinor, report.currency)}
                   </div>
-                  <span className="text-[10px] text-text-muted block">
+                  <span className="text-caption text-text-muted block">
                     {report.annualContributionPerCustomerMinor > 0 ? (
                       <span className="text-emerald-400">
                         {isIran ? "سودآور در دوره نگه‌داشت" : "Positive margin"}
@@ -557,13 +574,13 @@ export function GrowthCalculator() {
 
                 {/* Metric 2: Blended CAC */}
                 <div className="p-3 rounded-xl bg-surface-secondary/70 border border-border-subtle space-y-1">
-                  <span className="text-[11px] font-mono text-text-subtle block">
+                  <span className="text-detail font-mono text-text-subtle block">
                     {isIran ? "هزینه جذب رقیق‌شده:" : "Blended CAC:"}
                   </span>
                   <div className="text-sm font-bold text-text-primary font-mono truncate">
                     {formatMinor(report.viral.blendedCacMinor, report.currency)}
                   </div>
-                  <span className="text-[10px] text-emerald-400 font-mono block">
+                  <span className="text-caption text-emerald-400 font-mono block">
                     -{(report.viral.cacReductionRate * 100).toFixed(1)}% via Viral Loop
                   </span>
                 </div>
@@ -571,7 +588,7 @@ export function GrowthCalculator() {
                 {/* Metric 3: Viral Multiplier */}
                 <div className="p-3 rounded-xl bg-surface-secondary/70 border border-border-subtle space-y-1">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-mono text-text-subtle">
+                    <span className="text-detail font-mono text-text-subtle">
                       {isIran ? "ضریب ویروسی (M):" : "Viral Multiplier:"}
                     </span>
                     <button
@@ -587,7 +604,7 @@ export function GrowthCalculator() {
                   <div className="text-sm font-bold text-brand font-mono">
                     {report.viral.viralMultiplier.toFixed(2)}x
                   </div>
-                  <span className="text-[10px] text-text-muted font-mono block">
+                  <span className="text-caption text-text-muted font-mono block">
                     K = {report.viral.kFactor.toFixed(3)}
                   </span>
                 </div>
@@ -595,7 +612,7 @@ export function GrowthCalculator() {
                 {/* Metric 4: Revenue Per Visitor */}
                 <div className="p-3 rounded-xl bg-surface-secondary/70 border border-border-subtle space-y-1">
                   <div className="flex items-center justify-between">
-                    <span className="text-[11px] font-mono text-text-subtle">
+                    <span className="text-detail font-mono text-text-subtle">
                       {isIran ? "درآمد به ازای بازدید:" : "Rev / Visitor (RPV):"}
                     </span>
                     <button
@@ -611,8 +628,8 @@ export function GrowthCalculator() {
                   <div className="text-sm font-bold text-text-primary font-mono truncate">
                     {formatMinor(report.aov.revenuePerVisitorMinor, report.currency)}
                   </div>
-                  <span className="text-[10px] text-emerald-400 font-mono block">
-                    +{(report.aov.revenuePerVisitorLiftRate * 100).toFixed(1)}% Net Lift
+                  <span className="text-caption text-emerald-400 font-mono block">
+                    +{(report.aov.revenuePerVisitorLiftRate * 100).toFixed(1)}% Revenue Lift
                   </span>
                 </div>
               </div>
@@ -634,10 +651,10 @@ export function GrowthCalculator() {
                       ✕
                     </button>
                   </div>
-                  <p className="text-[11px] text-text-muted leading-relaxed">
+                  <p className="text-detail text-text-muted leading-relaxed">
                     {activeTooltip === "viral"
                       ? "Calculated as M = 1 / (1 - K). Every customer brings K = i · c referred customers. Since K < 1, the series converges, yielding M customers for every 1 paid customer."
-                      : "AOV lift alone can be misleading if conversion falls. RPV = Conversion × AOV. A positive RPV lift is the definitive condition for BNPL fee profitability."}
+                      : "RPV = Conversion × AOV. Revenue growth alone does not establish profitability. Compare contribution per visitor after payment fees and referral costs."}
                   </p>
                 </div>
               )}
@@ -671,7 +688,7 @@ export function GrowthCalculator() {
             </span>
             <span className="text-emerald-400 flex items-center gap-1">
               <CheckCircle className="w-3 h-3" />
-              Zero Rounding Drift
+              {isIran ? "مدل تخمینی" : "Illustrative model"}
             </span>
           </div>
         </div>

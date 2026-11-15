@@ -1,18 +1,25 @@
 "use client";
 
 import * as React from "react";
+import { useShallow } from "zustand/react/shallow";
 import { Globe, ShieldCheck } from "lucide-react";
 import { useEcosystemStore } from "@/store/useEcosystemStore";
 import { cn } from "@/lib/utils";
 
 export function EcosystemSwitcher() {
-  const { currentEcosystem, setEcosystem } = useEcosystemStore();
+  const { currentEcosystem, setEcosystem, isSimulating } = useEcosystemStore(useShallow((state) => ({
+    currentEcosystem: state.currentEcosystem,
+    setEcosystem: state.setEcosystem,
+    isSimulating: state.isSimulating,
+  })));
 
   return (
     <div className="flex items-center p-1 rounded-xl bg-surface-tertiary border border-border-default shadow-inner">
       <button
         type="button"
         onClick={() => setEcosystem("GLOBAL_STRIPE")}
+        disabled={isSimulating}
+        aria-pressed={currentEcosystem === "GLOBAL_STRIPE"}
         className={cn(
           "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer",
           currentEcosystem === "GLOBAL_STRIPE"
@@ -23,7 +30,7 @@ export function EcosystemSwitcher() {
       >
         <Globe className="w-3.5 h-3.5" />
         <span className="hidden sm:inline">Global Rails</span>
-        <span className="px-1.5 py-0.2 rounded text-[10px] bg-white/15 text-white font-mono">
+        <span className="px-1.5 py-0.2 rounded text-caption bg-white/15 text-white font-mono">
           USD
         </span>
       </button>
@@ -31,6 +38,8 @@ export function EcosystemSwitcher() {
       <button
         type="button"
         onClick={() => setEcosystem("IRAN_SHAPARAK")}
+        disabled={isSimulating}
+        aria-pressed={currentEcosystem === "IRAN_SHAPARAK"}
         className={cn(
           "flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-semibold transition-all cursor-pointer font-sans",
           currentEcosystem === "IRAN_SHAPARAK"
@@ -41,7 +50,7 @@ export function EcosystemSwitcher() {
       >
         <ShieldCheck className="w-3.5 h-3.5" />
         <span className="font-medium">شبکه شاپرک</span>
-        <span className="px-1.5 py-0.2 rounded text-[10px] bg-white/15 text-white font-mono">
+        <span className="px-1.5 py-0.2 rounded text-caption bg-white/15 text-white font-mono">
           تومان
         </span>
       </button>
