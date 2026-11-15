@@ -87,9 +87,12 @@
   --primitive-radius-full: 9999px;
 
   /* Typography Fallbacks */
+  --primitive-type-9: 0.5625rem;
+  --primitive-type-10: 0.625rem;
+  --primitive-type-11: 0.6875rem;
   --primitive-font-en: var(--font-inter, system-ui, -apple-system, sans-serif);
   --primitive-font-fa: var(--font-vazirmatn, Tahoma, sans-serif);
-  --primitive-font-mono: var(--font-mono, "JetBrains Mono", monospace);
+  --primitive-font-mono: var(--font-jetbrains-mono, "JetBrains Mono", monospace);
 
   /* =====================================================================
    * TIER 2: SEMANTIC TOKENS (Abstract roles, themes, meaning)
@@ -104,6 +107,9 @@
   --surface-overlay: rgba(2, 6, 23, 0.85);
 
   /* Content & Text */
+  --text-size-micro: var(--primitive-type-9);
+  --text-size-caption: var(--primitive-type-10);
+  --text-size-detail: var(--primitive-type-11);
   --text-primary: var(--primitive-slate-100);
   --text-secondary: var(--primitive-slate-300);
   --text-muted: var(--primitive-slate-400);

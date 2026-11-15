@@ -3,6 +3,8 @@
 
 @theme {
   --color-canvas: var(--surface-canvas);
+  --color-surface-canvas: var(--surface-canvas);
+  --color-terminal-bg: var(--terminal-bg);
   --color-surface-primary: var(--surface-primary);
   --color-surface-secondary: var(--surface-secondary);
   --color-surface-tertiary: var(--surface-tertiary);
@@ -30,6 +32,9 @@
 
   --font-sans: var(--font-active);
   --font-mono: var(--primitive-font-mono);
+  --text-micro: var(--text-size-micro);
+  --text-caption: var(--text-size-caption);
+  --text-detail: var(--text-size-detail);
 }
 
 * {

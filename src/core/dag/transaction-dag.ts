@@ -329,7 +329,7 @@ class RunContext {
       ...prev,
       status,
       exitedAt,
-      lastError: error ?? prev.lastError,
+      lastError: error === undefined ? prev.lastError : error.slice(0, MAX_DIAGNOSTIC_LENGTH),
     };
     this.emit({
       ...this.base(),
@@ -488,18 +488,32 @@ export class TransactionDag {
     }
     ctx.exit('OPTIMISTIC', 'SUCCEEDED');
 
-    // Iran: IPG callbacks are geo-fenced; warn before burning a gateway attempt + SMS OTP.
-    if (tx.ecosystem === 'IRAN_SHAPARAK' && this.vpnDetected()) {
-      this.emit({
-        ...ctx.base(),
-        type: 'VPN_WARNING',
-        message:
-          'Non-Iranian egress IP detected. Shaparak IPG callbacks may be rejected — disable VPN before paying.',
-      });
-    }
+    let gatewayResult: GatewayLoopResult;
+    try {
+      // Warn about the simulated fault before burning a gateway attempt + SMS OTP.
+      if (tx.ecosystem === 'IRAN_SHAPARAK' && this.vpnDetected()) {
+        this.emit({
+          ...ctx.base(),
+          type: 'VPN_WARNING',
+          message: 'Simulated VPN fault enabled; no IP address was inspected.',
+        });
+      }
 
     // ── GATEWAY ⇄ RETRY_BACKOFF ─────────────────────────────────────────────
-    const { outcome, attempts } = await this.runGatewayLoop(ctx);
+      gatewayResult = await this.runGatewayLoop(ctx);
+    } catch (error: unknown) {
+      // Once reserved, infrastructure faults must become replayable outcomes. Throwing here
+      // would release the idempotency claim while the ledger or gateway may hold money.
+      const failure: GatewayFailure = {
+        code: 'PIPELINE_INTERRUPTED', disposition: 'DEAD_LETTER', message: toDiagnostic(error),
+      };
+      if (ctx.current !== null && ctx.nodes[ctx.current].status === 'ACTIVE') {
+        ctx.exit(ctx.current, 'FAILED', failure.message);
+      }
+      await this.safePark(tx, failure);
+      return this.settle(ctx, 'DEAD_LETTERED', ctx.nodes.GATEWAY.visits, null, failure, false);
+    }
+    const { outcome, attempts } = gatewayResult;
 
     // ── DLQ_OR_COMMIT ───────────────────────────────────────────────────────
     if (outcome.ok) {
@@ -521,6 +535,14 @@ export class TransactionDag {
     const { failure } = outcome;
     if (failure.disposition === 'DECLINE') {
       const compensated = await this.safeCompensate(tx, failure);
+      if (!compensated) {
+        const compensationFailure: GatewayFailure = {
+          code: 'LEDGER_COMPENSATION_FAILED', disposition: 'DEAD_LETTER',
+          message: `Compensation failed after ${failure.code}; reconcile the reserved entry.`,
+        };
+        await this.safePark(tx, compensationFailure);
+        return this.settle(ctx, 'DEAD_LETTERED', attempts, null, compensationFailure, false);
+      }
       return this.settle(ctx, 'DECLINED', attempts, null, failure, compensated);
     }
 
@@ -719,7 +741,6 @@ export class TransactionDag {
       await this.ledger.compensate(tx, failure);
       return true;
     } catch {
-      await this.safePark(tx, failure);
       return false;
     }
   }

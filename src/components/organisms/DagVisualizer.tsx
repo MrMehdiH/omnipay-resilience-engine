@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   Network,
   ArrowRight,
@@ -50,7 +51,7 @@ const NODE_METADATA: Record<DagNodeId, NodeVisualMeta> = {
   IDEMPOTENCY: {
     titleEn: "Idempotency Guard",
     titleFa: "سد یکتایی",
-    descEn: "cyrb53 / UUIDv7 check",
+    descEn: "Canonical payload fingerprint",
     descFa: "بررسی اثر انگشت تراکنش",
     icon: KeyRound,
     step: "02",
@@ -98,21 +99,38 @@ export function DagVisualizer() {
     telemetryEvents,
     activeTransactionId,
     lastSettlementResult,
+    lastSimulationError,
     isSimulating,
     executeSimulation,
     resetDagNodes,
     clearTelemetry,
-  } = useEcosystemStore();
+  } = useEcosystemStore(useShallow((state) => ({
+    currentEcosystem: state.currentEcosystem,
+    config: state.config,
+    xRayMode: state.xRayMode,
+    dagNodes: state.dagNodes,
+    telemetryEvents: state.telemetryEvents,
+    activeTransactionId: state.activeTransactionId,
+    lastSettlementResult: state.lastSettlementResult,
+    lastSimulationError: state.lastSimulationError,
+    isSimulating: state.isSimulating,
+    executeSimulation: state.executeSimulation,
+    resetDagNodes: state.resetDagNodes,
+    clearTelemetry: state.clearTelemetry,
+  })));
 
   const isIran = currentEcosystem === "IRAN_SHAPARAK";
   const [showTelemetryDrawer, setShowTelemetryDrawer] = React.useState(false);
   const [copiedTxId, setCopiedTxId] = React.useState(false);
 
-  const handleCopyTx = () => {
-    if (activeTransactionId && typeof navigator !== "undefined") {
-      navigator.clipboard.writeText(activeTransactionId);
+  const handleCopyTx = async () => {
+    if (!activeTransactionId || !navigator.clipboard) return;
+    try {
+      await navigator.clipboard.writeText(activeTransactionId);
       setCopiedTxId(true);
       setTimeout(() => setCopiedTxId(false), 2000);
+    } catch {
+      setCopiedTxId(false);
     }
   };
 
@@ -136,35 +154,35 @@ export function DagVisualizer() {
     switch (status) {
       case "ACTIVE":
         return (
-          <span className="flex items-center gap-1 text-[10px] font-mono font-bold text-brand bg-brand-subtle px-1.5 py-0.5 rounded border border-brand-border animate-pulse">
+          <span className="flex items-center gap-1 text-caption font-mono font-bold text-brand bg-brand-subtle px-1.5 py-0.5 rounded border border-brand-border animate-pulse">
             <span className="w-1.5 h-1.5 rounded-full bg-brand" />
             ACTIVE
           </span>
         );
       case "SUCCEEDED":
         return (
-          <span className="flex items-center gap-1 text-[10px] font-mono font-bold text-status-success bg-status-success/15 px-1.5 py-0.5 rounded border border-status-success/30">
+          <span className="flex items-center gap-1 text-caption font-mono font-bold text-status-success bg-status-success/15 px-1.5 py-0.5 rounded border border-status-success/30">
             <CheckCircle2 className="w-2.5 h-2.5" />
             SUCCEEDED
           </span>
         );
       case "FAILED":
         return (
-          <span className="flex items-center gap-1 text-[10px] font-mono font-bold text-status-danger bg-status-danger/15 px-1.5 py-0.5 rounded border border-status-danger/30">
+          <span className="flex items-center gap-1 text-caption font-mono font-bold text-status-danger bg-status-danger/15 px-1.5 py-0.5 rounded border border-status-danger/30">
             <XCircle className="w-2.5 h-2.5" />
             FAILED
           </span>
         );
       case "SKIPPED":
         return (
-          <span className="flex items-center gap-1 text-[10px] font-mono text-text-muted bg-surface-tertiary px-1.5 py-0.5 rounded border border-border-default">
+          <span className="flex items-center gap-1 text-caption font-mono text-text-muted bg-surface-tertiary px-1.5 py-0.5 rounded border border-border-default">
             SKIPPED
           </span>
         );
       case "PENDING":
       default:
         return (
-          <span className="text-[10px] font-mono text-text-subtle">
+          <span className="text-caption font-mono text-text-subtle">
             IDLE
           </span>
         );
@@ -246,11 +264,11 @@ export function DagVisualizer() {
               <Code2 className="w-3.5 h-3.5 text-purple-400" />
               <span>[CTO ARCHITECTURE: Transaction State Machine & DLQ Guarantees]</span>
             </div>
-            <span className="text-[10px] text-purple-300/80">
+            <span className="text-caption text-purple-300/80">
               Bounded Depth ≤ 4 + 2·maxAttempts
             </span>
           </div>
-          <p className="text-[11px] leading-relaxed text-purple-200/80">
+          <p className="text-detail leading-relaxed text-purple-200/80">
             Cart lock is acquired before idempotency to eliminate double-submit race conditions.
             The only cycle is <code className="text-white">GATEWAY ⇄ RETRY_BACKOFF</code>.
             Crucially, ambiguous states (timeouts after retries exhausted) transition to{" "}
@@ -277,7 +295,7 @@ export function DagVisualizer() {
               <Copy className="w-3 h-3" />
             </button>
             {copiedTxId && (
-              <span className="text-[10px] text-emerald-400">Copied!</span>
+              <span className="text-caption text-emerald-400">Copied!</span>
             )}
           </div>
 
@@ -321,7 +339,7 @@ export function DagVisualizer() {
                 >
                   {/* Top: Step & Status */}
                   <div className="w-full flex items-center justify-between mb-1.5">
-                    <span className="text-[10px] font-mono text-text-subtle font-semibold">
+                    <span className="text-caption font-mono text-text-subtle font-semibold">
                       {meta.step}
                     </span>
                     {getStatusBadge(state.status)}
@@ -353,13 +371,13 @@ export function DagVisualizer() {
                     <div className="text-xs font-bold text-text-primary leading-snug">
                       {isIran ? meta.titleFa : meta.titleEn}
                     </div>
-                    <div className="text-[10px] font-mono text-text-muted">
+                    <div className="text-caption font-mono text-text-muted">
                       {isIran ? meta.descFa : meta.descEn}
                     </div>
                   </div>
 
                   {/* Bottom: Visits & Error/Diagnostic info */}
-                  <div className="mt-2.5 pt-2 w-full border-t border-border-subtle flex flex-col items-center gap-1 text-[10px] font-mono">
+                  <div className="mt-2.5 pt-2 w-full border-t border-border-subtle flex flex-col items-center gap-1 text-caption font-mono">
                     <div className="flex items-center justify-between w-full text-text-subtle">
                       <span>{isIran ? "ورود:" : "Visits:"}</span>
                       <span className="text-text-primary font-bold">{state.visits}</span>
@@ -367,7 +385,7 @@ export function DagVisualizer() {
 
                     {state.lastError && (
                       <div
-                        className="text-[9px] text-rose-400 truncate max-w-full font-mono bg-rose-950/40 px-1 py-0.5 rounded border border-rose-500/20"
+                        className="text-micro text-rose-400 truncate max-w-full font-mono bg-rose-950/40 px-1 py-0.5 rounded border border-rose-500/20"
                         title={state.lastError}
                       >
                         {state.lastError.split(":")[0]}
@@ -389,6 +407,11 @@ export function DagVisualizer() {
       </div>
 
       {/* Terminal Outcome Summary Card (When Settled) */}
+      {lastSimulationError && (
+        <p role="alert" className="my-2 p-3 rounded-xl border border-status-danger/30 bg-status-danger/10 text-status-danger text-sm">
+          {isIran ? "اجرای شبیه‌سازی ناموفق بود: " : "Simulation failed: "}{lastSimulationError}
+        </p>
+      )}
       {lastSettlementResult && (
         <div
           className={cn(
@@ -412,7 +435,7 @@ export function DagVisualizer() {
               <div className="text-xs font-bold font-mono tracking-wide">
                 SETTLEMENT OUTCOME: {lastSettlementResult.outcome}
               </div>
-              <div className="text-[11px] opacity-90 leading-tight">
+              <div className="text-detail opacity-90 leading-tight">
                 {lastSettlementResult.outcome === "COMMITTED" &&
                   (isIran
                     ? `تراکنش موفق شاپرک با شناسه پیگیری (RRN): ${lastSettlementResult.gatewayReference}`
@@ -429,7 +452,7 @@ export function DagVisualizer() {
             </div>
           </div>
 
-          <div className="flex items-center gap-2 shrink-0 font-mono text-[11px]">
+          <div className="flex items-center gap-2 shrink-0 font-mono text-detail">
             <span>Compensated:</span>
             <span className="font-bold">
               {lastSettlementResult.compensated ? "YES" : "NO"}
@@ -440,8 +463,10 @@ export function DagVisualizer() {
 
       {/* Real-time Telemetry Stream Drawer / Terminal */}
       <div className="my-1.5 border border-border-subtle rounded-xl overflow-hidden bg-surface-canvas/90">
+        <div className="flex items-center">
         <button
           type="button"
+          aria-expanded={showTelemetryDrawer}
           onClick={() => setShowTelemetryDrawer((prev) => !prev)}
           className="w-full px-3 py-2 flex items-center justify-between text-xs font-mono text-text-muted hover:text-text-primary hover:bg-surface-secondary/40 transition-colors cursor-pointer"
         >
@@ -450,26 +475,13 @@ export function DagVisualizer() {
             <span>
               {isIran ? "رویدادنگاری زنده تله‌متری (Live Telemetry Stream)" : "Live Telemetry Stream Log"}
             </span>
-            <Badge variant="outline" size="sm" className="font-mono text-[10px]">
+            <Badge variant="outline" size="sm" className="font-mono text-caption">
               {telemetryEvents.length} events
             </Badge>
-            {telemetryEvents.length > 0 && (
-              <span
-                role="button"
-                tabIndex={0}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  clearTelemetry();
-                }}
-                className="text-[10px] text-text-subtle hover:text-text-primary underline ml-1 cursor-pointer"
-              >
-                {isIran ? "پاکسازی" : "Clear"}
-              </span>
-            )}
           </div>
 
           <div className="flex items-center gap-1.5">
-            <span className="text-[10px] text-text-subtle">
+            <span className="text-caption text-text-subtle">
               {showTelemetryDrawer ? (isIran ? "بستن لاگ" : "Collapse") : (isIran ? "مشاهده لاگ" : "Expand")}
             </span>
             {showTelemetryDrawer ? (
@@ -479,9 +491,15 @@ export function DagVisualizer() {
             )}
           </div>
         </button>
+        {telemetryEvents.length > 0 && (
+          <Button type="button" variant="ghost" size="sm" onClick={clearTelemetry}>
+            {isIran ? "پاکسازی" : "Clear"}
+          </Button>
+        )}
+        </div>
 
         {showTelemetryDrawer && (
-          <div className="p-3 border-t border-border-subtle bg-terminal-bg max-h-48 overflow-y-auto space-y-1.5 font-mono text-[11px]">
+          <div className="p-3 border-t border-border-subtle bg-terminal-bg max-h-48 overflow-y-auto space-y-1.5 font-mono text-detail">
             {telemetryEvents.length === 0 ? (
               <div className="text-text-subtle text-center py-3">
                 {isIran ? "هنوز رویدادی ثبت نشده است. شبیه‌سازی را اجرا کنید." : "No telemetry events yet. Trigger a transaction simulation."}
@@ -492,13 +510,13 @@ export function DagVisualizer() {
                   key={evt.eventId}
                   className="flex items-start gap-2 text-text-muted hover:text-text-primary transition-colors border-b border-border-subtle/30 pb-1"
                 >
-                  <span className="text-text-subtle text-[10px] shrink-0">
+                  <span className="text-text-subtle text-caption shrink-0">
                     {new Date(evt.timestamp).toISOString().slice(14, 23)}
                   </span>
 
                   <span
                     className={cn(
-                      "px-1 py-0.2 rounded text-[9px] font-bold shrink-0",
+                      "px-1 py-0.2 rounded text-micro font-bold shrink-0",
                       evt.type === "NODE_ENTERED"
                         ? "bg-indigo-500/20 text-indigo-300"
                         : evt.type === "NODE_EXITED"
@@ -515,13 +533,14 @@ export function DagVisualizer() {
                     {evt.type}
                   </span>
 
-                  <span className="text-[10px] truncate">
+                  <span className="text-caption truncate">
                     {"nodeId" in evt && `${evt.nodeId} `}
                     {"status" in evt && `→ ${evt.status} (${evt.durationMs}ms)`}
                     {"delayMs" in evt && `Backoff: ${evt.delayMs}ms (Code: ${evt.failureCode})`}
                     {"mode" in evt && `Mode: ${evt.mode} (Key: ${evt.idempotencyKey.slice(0, 12)}...)`}
                     {"outcome" in evt && `Outcome: ${evt.outcome} (Attempts: ${evt.attempts})`}
                     {"message" in evt && `${evt.message}`}
+                    {"inquiryResult" in evt && `Inquiry ${evt.inquiry} → ${evt.inquiryResult} (Attempt: ${evt.gatewayAttempt})`}
                   </span>
                 </div>
               ))
@@ -545,6 +564,7 @@ export function DagVisualizer() {
             variant="outline"
             size="sm"
             onClick={resetDagNodes}
+            disabled={isSimulating}
             className="text-xs font-mono cursor-pointer"
             title="Reset DAG visual nodes to PENDING state"
           >
@@ -558,10 +578,10 @@ export function DagVisualizer() {
             disabled={!activeTransactionId || isSimulating}
             onClick={handleRunReplay}
             className="text-xs font-mono cursor-pointer"
-            title="Re-send same idempotency key to test single-flight dedup"
+            title="Replay the stored result for the previous intent without calling the gateway"
           >
             <KeyRound className="w-3 h-3 ml-1 rtl:mr-1" />
-            {isIran ? "تست کلیک دوبل (یکتایی)" : "Test Double-Click (Replay)"}
+            {isIran ? "بازپخش نتیجهٔ قبلی" : "Replay Last Result"}
           </Button>
 
           <Button

@@ -5,6 +5,10 @@ import {
   ECOSYSTEM_CONFIGS,
 } from "@/schemas/ecosystem";
 import {
+  ChaosConfigSchema,
+  DAG_NODE_IDS,
+  SimulationOptionsSchema,
+  type SimulationOptions,
   ChaosConfig,
   DagNodeId,
   DagNodeState,
@@ -19,6 +23,7 @@ import {
   InMemoryCartLock,
   InMemoryOptimisticLedger,
   realTimeScheduler,
+  createSeededRandom,
 } from "@/core/dag/transaction-dag";
 import { IdempotencyRegistry } from "@/core/dag/idempotency-engine";
 
@@ -161,10 +166,7 @@ const sharedRegistry = new IdempotencyRegistry<SettlementResult>();
 const sharedCartLock = new InMemoryCartLock();
 const sharedLedger = new InMemoryOptimisticLedger();
 
-export interface SimulationOptions {
-  forceReplay?: boolean;
-  forceConflict?: boolean;
-}
+export type { SimulationOptions } from "@/schemas/transaction.schema";
 
 export interface EcosystemState {
   currentEcosystem: EcosystemId;
@@ -186,6 +188,7 @@ export interface EcosystemState {
   lastTransactionPayload: TransactionPayload | null;
   lastSettlementResult: SettlementResult | null;
   isSimulating: boolean;
+  lastSimulationError: string | null;
 
   // Ecosystem Actions
   setEcosystem: (id: EcosystemId) => void;
@@ -227,8 +230,10 @@ export const useEcosystemStore = create<EcosystemState>((set, get) => ({
   lastTransactionPayload: null,
   lastSettlementResult: null,
   isSimulating: false,
+  lastSimulationError: null,
 
   setEcosystem: (id: EcosystemId) => {
+    if (get().isSimulating || get().currentEcosystem === id) return;
     const nextConfig = ECOSYSTEM_CONFIGS[id];
     const isIran = id === "IRAN_SHAPARAK";
     const xRay = get().xRayMode;
@@ -238,10 +243,16 @@ export const useEcosystemStore = create<EcosystemState>((set, get) => ({
     set((state) => ({
       currentEcosystem: id,
       config: nextConfig,
-      vpnWarningActive: isIran,
+      vpnWarningActive: isIran && state.chaosConfig.vpnDetected,
+      dagNodes: INITIAL_DAG_NODES,
+      telemetryEvents: [],
+      activeTransactionId: null,
+      lastTransactionPayload: null,
+      lastSettlementResult: null,
+      lastSimulationError: null,
       chaosConfig: {
         ...state.chaosConfig,
-        vpnDetected: isIran,
+        vpnDetected: isIran && state.chaosConfig.vpnDetected,
       },
     }));
   },
@@ -266,13 +277,7 @@ export const useEcosystemStore = create<EcosystemState>((set, get) => ({
   },
 
   dismissVpnWarning: () => {
-    set((state) => ({
-      vpnWarningActive: false,
-      chaosConfig: {
-        ...state.chaosConfig,
-        vpnDetected: false,
-      },
-    }));
+    set({ vpnWarningActive: false });
   },
 
   triggerVpnSimulation: () => {
@@ -289,10 +294,10 @@ export const useEcosystemStore = create<EcosystemState>((set, get) => ({
 
   setChaosConfig: (configOrUpdater) => {
     set((state) => {
-      const nextConfig =
+      const nextConfig = ChaosConfigSchema.parse(
         typeof configOrUpdater === "function"
           ? configOrUpdater(state.chaosConfig)
-          : configOrUpdater;
+          : configOrUpdater);
 
       const isIran = state.currentEcosystem === "IRAN_SHAPARAK";
       return {
@@ -304,14 +309,14 @@ export const useEcosystemStore = create<EcosystemState>((set, get) => ({
 
   updateChaosConfig: (patch: Partial<ChaosConfig>) => {
     set((state) => {
-      const updated: ChaosConfig = {
+      const updated = ChaosConfigSchema.parse({
         ...state.chaosConfig,
         ...patch,
         latency: {
           ...state.chaosConfig.latency,
           ...(patch.latency ?? {}),
         },
-      };
+      });
 
       const isIran = state.currentEcosystem === "IRAN_SHAPARAK";
       const vpnActive =
@@ -327,19 +332,15 @@ export const useEcosystemStore = create<EcosystemState>((set, get) => ({
   },
 
   resetChaosConfig: () => {
-    const isIran = get().currentEcosystem === "IRAN_SHAPARAK";
     set({
-      chaosConfig: {
-        ...DEFAULT_CHAOS_CONFIG,
-        vpnDetected: isIran,
-      },
-      vpnWarningActive: isIran,
+      chaosConfig: ChaosConfigSchema.parse(DEFAULT_CHAOS_CONFIG),
+      vpnWarningActive: false,
     });
   },
 
   applyChaosPreset: (presetKey: ChaosPreset) => {
     const patch = CHAOS_PRESETS[presetKey];
-    get().updateChaosConfig(patch);
+    get().setChaosConfig({ ...DEFAULT_CHAOS_CONFIG, seed: get().chaosConfig.seed, ...patch });
   },
 
   setDagNodeState: (nodeId: DagNodeId, patch: Partial<DagNodeState>) => {
@@ -365,121 +366,136 @@ export const useEcosystemStore = create<EcosystemState>((set, get) => ({
   },
 
   resetDagNodes: () => {
+    if (get().isSimulating) return;
     set({
       dagNodes: INITIAL_DAG_NODES,
       lastSettlementResult: null,
+      lastSimulationError: null,
     });
   },
 
   executeSimulation: async (options?: SimulationOptions): Promise<SettlementResult> => {
+    const parsedOptions = SimulationOptionsSchema.parse(options ?? {});
     const current = get();
     if (current.isSimulating) {
       throw new Error("A simulation is already in progress.");
     }
 
-    set({ isSimulating: true, lastSettlementResult: null });
     get().resetDagNodes();
-
-    const isIran = current.currentEcosystem === "IRAN_SHAPARAK";
-    let payload: TransactionPayload;
-
-    if (options?.forceReplay && current.lastTransactionPayload) {
-      payload = current.lastTransactionPayload;
-    } else if (options?.forceConflict && current.lastTransactionPayload) {
-      payload = {
-        ...current.lastTransactionPayload,
-        amountMinor: current.lastTransactionPayload.amountMinor + 1000,
-      } as TransactionPayload;
-    } else {
-      const txId =
-        typeof crypto !== "undefined" && crypto.randomUUID
-          ? crypto.randomUUID()
-          : `10000000-2000-4000-8000-${Date.now().toString(16).padStart(12, "0")}`;
-      const idempKey = `intent_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 8)}`;
-
-      payload = isIran
-        ? {
-            ecosystem: "IRAN_SHAPARAK",
-            currency: "IRT",
-            rail: "SHAPARAK_SAMAN",
-            mobile: "09121234567",
-            callbackUrl: "https://omnipay.io/ipg/callback",
-            transactionId: txId,
-            idempotencyKey: idempKey,
-            cartId: `cart_${txId.slice(0, 8)}`,
-            customerId: "cust_iran_99",
-            amountMinor: 450000,
-            createdAt: Date.now(),
-          }
-        : {
-            ecosystem: "GLOBAL_STRIPE",
-            currency: "USD",
-            rail: "STRIPE_CARD",
-            region: "us-east-1",
-            transactionId: txId,
-            idempotencyKey: idempKey,
-            cartId: `cart_${txId.slice(0, 8)}`,
-            customerId: "cust_global_99",
-            amountMinor: 4500,
-            createdAt: Date.now(),
-          };
-    }
-
-    set({
-      activeTransactionId: payload.transactionId,
-      lastTransactionPayload: payload,
-    });
-
-    const chaos = get().chaosConfig;
-    const gateway = new ChaosGatewaySimulator(chaos, realTimeScheduler);
-    const retryPolicy: RetryPolicy = {
-      maxAttempts: 3,
-      baseDelayMs: 250,
-      maxDelayMs: 2000,
-    };
-
-    const dag = new TransactionDag({
-      gateway,
-      ledger: sharedLedger,
-      cartLock: sharedCartLock,
-      registry: sharedRegistry,
-      retryPolicy,
-      vpnDetected: () => get().chaosConfig.vpnDetected,
-    });
-
-    const unsubscribe = dag.subscribe((event: TelemetryEvent) => {
-      get().addTelemetryEvent(event);
-      if (event.type === "NODE_ENTERED") {
-        get().setDagNodeState(event.nodeId, {
-          status: "ACTIVE",
-          enteredAt: event.timestamp,
-          visits: event.attempt,
-        });
-      } else if (event.type === "NODE_EXITED") {
-        get().setDagNodeState(event.nodeId, {
-          status: event.status,
-          exitedAt: event.timestamp,
-        });
-      } else if (event.type === "IDEMPOTENCY_REPLAY") {
-        get().setDagNodeState("IDEMPOTENCY", {
-          status: "SKIPPED",
-        });
-      }
-    });
-
+    set({ isSimulating: true, lastSettlementResult: null, lastSimulationError: null, telemetryEvents: [] });
+    let unsubscribe: (() => void) | undefined;
     try {
+
+      const isIran = current.currentEcosystem === "IRAN_SHAPARAK";
+      let payload: TransactionPayload;
+
+      if (parsedOptions.forceReplay && current.lastTransactionPayload) {
+        payload = current.lastTransactionPayload;
+      } else if (parsedOptions.forceConflict && current.lastTransactionPayload) {
+        payload = {
+          ...current.lastTransactionPayload,
+          amountMinor: current.lastTransactionPayload.amountMinor + 1000,
+        };
+      } else {
+        const txId =
+          typeof crypto !== "undefined" && crypto.randomUUID
+            ? crypto.randomUUID()
+            : `10000000-2000-4000-8000-${Date.now().toString(16).padStart(12, "0")}`;
+        const idempKey = `intent_${txId}`;
+
+        payload = isIran
+          ? {
+              ecosystem: "IRAN_SHAPARAK",
+              currency: "IRT",
+              rail: "SHAPARAK_SAMAN",
+              mobile: "09121234567",
+              callbackUrl: "https://omnipay.io/ipg/callback",
+              transactionId: txId,
+              idempotencyKey: idempKey,
+              cartId: `cart_${txId.slice(0, 8)}`,
+              customerId: "cust_iran_99",
+              amountMinor: 450000,
+              createdAt: Date.now(),
+            }
+          : {
+              ecosystem: "GLOBAL_STRIPE",
+              currency: "USD",
+              rail: "STRIPE_CARD",
+              region: "us-east-1",
+              transactionId: txId,
+              idempotencyKey: idempKey,
+              cartId: `cart_${txId.slice(0, 8)}`,
+              customerId: "cust_global_99",
+              amountMinor: 4500,
+              createdAt: Date.now(),
+            };
+      }
+
+      set({
+        activeTransactionId: payload.transactionId,
+        lastTransactionPayload: parsedOptions.forceConflict ? current.lastTransactionPayload : payload,
+      });
+
+      const chaos = get().chaosConfig;
+      const gateway = new ChaosGatewaySimulator(chaos, realTimeScheduler);
+      const retryPolicy: RetryPolicy = {
+        maxAttempts: 3,
+        baseDelayMs: 250,
+        maxDelayMs: 2000,
+      };
+
+      const dag = new TransactionDag({
+        gateway,
+        ledger: sharedLedger,
+        cartLock: sharedCartLock,
+        registry: sharedRegistry,
+        retryPolicy,
+        vpnDetected: () => chaos.vpnDetected,
+        random: createSeededRandom(chaos.seed),
+      });
+
+      unsubscribe = dag.subscribe((event: TelemetryEvent) => {
+        get().addTelemetryEvent(event);
+        if (event.type === "NODE_ENTERED") {
+          get().setDagNodeState(event.nodeId, {
+            status: "ACTIVE",
+            enteredAt: event.timestamp,
+            visits: event.attempt,
+          });
+        } else if (event.type === "NODE_EXITED") {
+          get().setDagNodeState(event.nodeId, {
+            status: event.status,
+            exitedAt: event.timestamp,
+          });
+        } else if (event.type === "IDEMPOTENCY_REPLAY") {
+          get().setDagNodeState("IDEMPOTENCY", {
+            status: "SKIPPED",
+          });
+        }
+      });
+
       const result = await dag.execute(payload);
+      const replayed = get().telemetryEvents.some((event) => event.type === "IDEMPOTENCY_REPLAY");
+      const replayNodes = { ...get().dagNodes };
+      if (replayed) {
+        for (const id of DAG_NODE_IDS) {
+          if (replayNodes[id].status === "PENDING") {
+            replayNodes[id] = { ...replayNodes[id], status: "SKIPPED" };
+          }
+        }
+      }
       set((s) => ({
-        dagNodes: { ...s.dagNodes, ...result.nodes },
+        dagNodes: replayed ? replayNodes : { ...s.dagNodes, ...result.nodes },
         lastSettlementResult: result,
         isSimulating: false,
       }));
-      unsubscribe();
       return result;
     } catch (error: unknown) {
-      unsubscribe();
-      set({ isSimulating: false });
+      set({ lastSimulationError: error instanceof Error ? error.message : String(error) });
       throw error;
+    } finally {
+      unsubscribe?.();
+      set({ isSimulating: false });
     }
   },
 }));

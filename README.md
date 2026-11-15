@@ -1,59 +1,76 @@
-# 🛡️ Omnipay Resilience Engine
+﻿# OmniPay Resilience Engine
 
-> A Zero-Auth Interactive Sandbox demonstrating Idempotency, DAG-based transaction state machines, and Growth Loop economics.
+An interactive, in-browser simulation of payment resilience and BNPL unit economics, with English/LTR and Persian/RTL ecosystems.
 
-![TypeScript](https://img.shields.io/badge/TypeScript-007ACC?style=for-the-badge&logo=typescript&logoColor=white)
-![Next.js](https://img.shields.io/badge/Next.js_15+-000000?style=for-the-badge&logo=next.js&logoColor=white)
-![Zustand](https://img.shields.io/badge/Zustand-443E38?style=for-the-badge&logo=react&logoColor=white)
-![Vitest](https://img.shields.io/badge/Vitest-6E9F18?style=for-the-badge&logo=vitest&logoColor=white)
-![Tailwind CSS](https://img.shields.io/badge/Tailwind_CSS-38B2AC?style=for-the-badge&logo=tailwind-css&logoColor=white)
-![CI Status](https://img.shields.io/github/actions/workflow/status/MrMehdiH/omnipay-resilience-engine/ci.yml?branch=main&style=for-the-badge&logo=githubactions&logoColor=white&label=Quality%20Gate%20CI)
+[Live demo](https://mrmehdih.github.io/omnipay-resilience-engine/) · [Security policy](SECURITY.md) · [Critical review](docs/critical-review-01.fa.md) · [Publishing guide](docs/publishing-review-01.fa.md)
 
-## 🎯 The 6-Second Pitch for CTOs & Tech Leads
-This is not a standard CRUD application. It is a strictly architected, deterministic state machine built to handle distributed system chaos (Network Partitions, Double-Clicks, VPN Geo-blocking) with graceful degradation. 
+**No real payments, backend, card collection, or provider integrations.** Stripe, Klarna, Shaparak and SnappPay identify the simulated ecosystem. The ledger, idempotency registry and dead-letter outcomes live in memory in one browser tab; reloading clears them. VPN faults are manually simulated; the application does not inspect your IP.
 
-It features a **Dual-Ecosystem Engine** that switches the entire application context—currency (USD/Toman), direction (LTR/RTL), payment rail (Stripe/Shaparak), and typography (Inter/Vazirmatn)—instantly without a reload.
+## What the demo implements
 
-## 🏗️ Architectural Highlights
+- Intent-scoped idempotency: concurrent requests share one operation; completed requests replay the cached result; changed payloads under the same key fail.
+- Re-entrant cart leases and an optimistic ledger with guarded transitions.
+- Gateway outcomes classified as safe to retry, definitive refusal, unknown, or requiring reconciliation. Unknown outcomes require status inquiry before another authorization; unresolved outcomes are never compensated automatically.
+- Bounded retries and status inquiries with full-jitter exponential backoff. A seeded simulator and seeded retry randomness reproduce decisions and delays; UUIDs and wall-clock telemetry are intentionally different on fresh runs.
+- Chaos presets for latency, partition, hard declines, transient errors and a hypothetical VPN fault.
+- A transaction state machine and telemetry viewer. The retry edge is cyclic; its bounded execution can be unrolled into an acyclic trace. This is not a general-purpose DAG dependency solver.
+- BNPL fee and margin assumptions, discounted LTV, referral rewards, blended CAC and finite or steady-state viral growth.
 
-### 1. Hexagonal & Pure Core (`src/core/`)
-The business logic is mathematically pure, deterministic, and 100% environment-agnostic. **There is absolutely zero React, DOM, or Next.js dependency inside the core directory.**
-*   **Idempotency Engine:** Prevents duplicate charges via `O(1)` memory lookups, Cyb53 payload fingerprinting, and single-flight coalescing for concurrent requests.
-*   **Transaction DAG:** An event-driven Directed Acyclic Graph mapping `CART_LOCK -> IDEMPOTENCY -> OPTIMISTIC -> GATEWAY -> RETRY_BACKOFF -> DLQ_OR_COMMIT`.
-*   **Unit Economics Growth Engine:** Calculates closed-form steady-state viral multipliers (K-Factor) and discounted LTV:CAC ratios based on Gupta-Lehmann models.
+The Replay control demonstrates a completed intent without contacting the gateway again. Concurrent duplicate coalescing is verified in core tests. Clearing a warning does not disable its simulated fault.
 
-### 2. Strict I/O Boundaries (`src/schemas/`)
-Every piece of data entering or exiting the core (API payloads, Gateway responses, Telemetry events) is strictly validated via **Zod schemas**. We fail fast at the boundary, meaning `src/core/` operates without `any` or runtime type assumptions.
+## Run locally
 
-### 3. Design Token System
-Zero hardcoded colors or pixels in JSX. The UI is powered by a 3-tier CSS Custom Property architecture (Global -> Alias -> Component) merged with Tailwind CSS. 
+Use Node.js 22.12+ in the 22.x line, 24.x, or 26+ (see `package.json`). CI uses Node 22. Dependencies are locked in `package-lock.json`.
 
-## 🎮 Interactive Sandbox Features
-*   **Chaos Controller:** Inject artificial latency, trigger AWS Full Jitter exponential backoff, simulate network partitions, or force hard IPG declines.
-*   **DAG Visualizer:** Watch the transaction state machine mutate in real-time. Hit the "Double Click" simulator to see the Idempotency Engine instantly intercept and coalesce the redundant payload.
-*   **Growth Calculator:** Slide the K-Factor and BNPL adoption rates to see real-time shifts in Unit Economics (Blended CAC, Discounted LTV, Repayment Horizon).
+```sh
+git clone https://github.com/MrMehdiH/omnipay-resilience-engine.git
+cd omnipay-resilience-engine
+npm ci
+npm run dev
+```
 
-## 🚀 Getting Started
+Open `http://localhost:3000`.
 
-1. Clone the repository:
-   ```bash
-   git clone [https://github.com/MrMehdiH/omnipay-resilience-engine.git](https://github.com/MrMehdiH/omnipay-resilience-engine.git)
+```sh
+npm run lint
+npm run typecheck
+npm test
+npm run build
+```
 
-   ---
+The project uses Next.js 16.4.2, React 19.3, TypeScript, Tailwind CSS 4, Zustand, Zod and Vitest. Read the installed Next.js guides in `node_modules/next/dist/docs/` before changing framework code.
 
-## 👨‍💻 Mastermind & Principal Architect
+## Architecture
 
-**Mehdi (Willam) Heydari | مهدی حیدری**  
-*System Designer, Visionary & Multi-Agent AI Orchestrator*
+| Directory | Responsibility |
+| --- | --- |
+| `src/core/dag` | Framework-independent state machine, injected ports and in-memory adapters |
+| `src/core/growth-engine` | Growth model and money formatting |
+| `src/schemas` | Transaction, configuration and ecosystem contracts |
+| `src/store` | Simulation orchestration and client state |
+| `src/components/{atoms,molecules,organisms}` | UI layers |
+| `src/design-tokens` | Primitive, semantic and contextual CSS variables |
 
-[![LinkedIn](https://img.shields.io/badge/LinkedIn-Mehdi_Heydari-0A66C2?style=for-the-badge&logo=linkedin&logoColor=white)](https://www.linkedin.com/in/mehdi-heydari-7b70b9291)
-[![GitHub](https://img.shields.io/badge/GitHub-MrMehdiH-181717?style=for-the-badge&logo=github&logoColor=white)](https://github.com/MrMehdiH)
-[![Telegram](https://img.shields.io/badge/Telegram-@Build__Second__Brain__Owner-26A5E4?style=for-the-badge&logo=telegram&logoColor=white)](https://t.me/Build_Second_Brain_Owner)
-[![Email](https://img.shields.io/badge/Email-mr.mhd.2000p@gmail.com-EA4335?style=for-the-badge&logo=gmail&logoColor=white)](mailto:mr.mhd.2000p@gmail.com)
+ESLint rejects explicit `any`, framework imports in core/schemas, and imports from higher atomic UI layers. Currency is `USD` (cents) or `IRT` (whole Toman) throughout the core and UI. Growth assumptions are illustrative inputs, not vendor pricing or investment advice.
 
-### 🤝 Multi-Agent Engineering Orchestration
-This repository showcases modern **AI-Augmented Software Architecture**, directed and orchestrated by **Mehdi (Willam) Heydari** as the central mastermind:
-*   **🧠 Mastermind & Product Visionary:** Mehdi (Willam) Heydari
-*   **📐 Co-Architect & Strategic Planner:** Google Gemini
-*   **⚙️ Pure TS Core & Deterministic Testing:** Anthropic Claude
-*   **🎨 Reactive UI & 3-Tier Token Assembly:** Antigravity IDE
+## Deployment
+
+`output: "export"` produces `out/`; `next start` is not the serving path for this static export. For a local build made without `GITHUB_ACTIONS`, any static file server can serve `out/` (for example, if Python is installed: `python -m http.server 3000 --bind 127.0.0.1 --directory out`).
+
+On GitHub Actions, the build uses `/omnipay-resilience-engine` as its base path. Pull requests run lint, typecheck, tests and export. Pushes to `main` also upload and deploy the Pages artifact. The current workflow does not deploy from `workflow_dispatch`.
+
+Google fonts are fetched at build time by `next/font` and bundled with the export. Builds need access to those font sources. Runtime assets are served by the static host.
+
+## Limits and next work
+
+- Circuit-breaker behavior, multi-region routing and currency conversion remain roadmap items. Circuit-state types alone are not an implementation.
+- This is a local simulation of distributed-system patterns. Cross-process deduplication, durable reconciliation, provider verification and production timeouts need server-side adapters and storage.
+- Lease renewal/fencing and cancellation are not implemented. Real adapters must enforce time budgets; the engine does not interrupt a never-resolving port.
+- The growth model still declares some contracts inside `src/core/growth-engine`; move those to shared schemas before adding another consumer.
+- Browser smoke checks are currently manual; automated accessibility, responsive and browser regression checks remain work to add.
+
+## Author
+
+**Mehdi (Willam) Heydari | مهدی حیدری** — product direction and architecture, with AI-assisted implementation.
+
+[GitHub](https://github.com/MrMehdiH) · [LinkedIn](https://www.linkedin.com/in/mehdi-heydari-7b70b9291) · [Email](mailto:mr.mhd.2000p@gmail.com)

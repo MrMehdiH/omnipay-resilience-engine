@@ -1,11 +1,11 @@
 "use client";
 
 import * as React from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   Layers,
   Activity,
   Cpu,
-  Shield,
   Zap,
 } from "lucide-react";
 import { useEcosystemStore } from "@/store/useEcosystemStore";
@@ -15,12 +15,16 @@ import { Badge } from "@/components/atoms/Badge";
 import { StatusDot } from "@/components/atoms/StatusDot";
 
 export function Header() {
-  const { currentEcosystem, config, xRayMode } = useEcosystemStore();
+  const { currentEcosystem, config, xRayMode } = useEcosystemStore(useShallow((state) => ({
+    currentEcosystem: state.currentEcosystem,
+    config: state.config,
+    xRayMode: state.xRayMode,
+  })));
   const isIran = currentEcosystem === "IRAN_SHAPARAK";
 
   return (
     <header className="sticky top-0 z-30 w-full border-b border-border-subtle bg-surface-primary/85 backdrop-blur-md">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-17 flex items-center justify-between gap-4">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 min-h-17 py-3 flex flex-wrap lg:flex-nowrap items-center justify-between gap-4">
         {/* Left: Brand Identity & Active Rail */}
         <div className="flex items-center gap-3.5">
           <div className="relative flex items-center justify-center w-10 h-10 rounded-xl bg-linear-to-br from-indigo-500/20 via-surface-secondary to-teal-500/20 border border-border-default shadow-sm group">
@@ -36,7 +40,7 @@ export function Header() {
                 OmniPay
               </span>
               <span className="text-xs px-2 py-0.5 rounded-full font-mono bg-surface-tertiary border border-border-default text-text-muted">
-                v1.0-alpha
+                v0.1.0
               </span>
               <Badge variant="brand" size="sm" className="hidden md:inline-flex">
                 Resilience Engine
@@ -54,15 +58,12 @@ export function Header() {
         </div>
 
         {/* Center / Right: Interactive Controls */}
-        <div className="flex items-center gap-2.5 sm:gap-3.5">
+        <div className="w-full lg:w-auto flex flex-wrap items-center gap-2.5 sm:gap-3.5">
           {/* Cluster Telemetry Pill */}
           <div className="hidden lg:flex items-center gap-2 px-3 py-1.5 rounded-xl bg-surface-canvas/60 border border-border-subtle font-mono text-xs">
             <Activity className="w-3.5 h-3.5 text-emerald-400" />
-            <span className="text-text-muted">SLA:</span>
-            <span className="text-emerald-400 font-bold">99.999%</span>
-            <span className="text-border-strong">•</span>
-            <span className="text-text-muted">P99:</span>
-            <span className="text-text-primary">138ms</span>
+            <span className="text-text-muted">{isIran ? "محیط شبیه‌سازی مرورگر" : "In-browser simulation"}</span>
+            <span className="text-emerald-400 font-bold">{isIran ? "بدون پرداخت واقعی" : "No real payments"}</span>
           </div>
 
           {/* 1-Click Ecosystem Switcher */}

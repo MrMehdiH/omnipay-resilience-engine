@@ -9,7 +9,7 @@ const inter = Inter({
 });
 
 const jetbrainsMono = JetBrains_Mono({
-  variable: "--font-mono",
+  variable: "--font-jetbrains-mono",
   subsets: ["latin"],
   display: "swap",
 });
@@ -23,7 +23,7 @@ const vazirmatn = Vazirmatn({
 export const metadata: Metadata = {
   title: "OmniPay Resilience Engine | Distributed Fintech Simulation",
   description:
-    "Interactive dual-ecosystem resilience engineering showcase demonstrating circuit breakers, idempotency, chaos injection, and DAG transaction pipelines for Global (Stripe/Klarna) and Iranian (Shaparak/SnappPay) payment rails.",
+    "In-browser simulation of idempotency, status inquiry, retry backoff and transaction pipelines across Global and Iranian payment ecosystems. No real payments.",
 };
 
 export default function RootLayout({

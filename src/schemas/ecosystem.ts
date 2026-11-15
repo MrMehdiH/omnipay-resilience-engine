@@ -1,6 +1,8 @@
 import { z } from "zod";
+import { CurrencySchema, EcosystemSchema } from "./transaction.schema";
+export { CurrencySchema, PaymentRailSchema, type Currency, type PaymentRail } from "./transaction.schema";
 
-export const EcosystemIdSchema = z.enum(["GLOBAL_STRIPE", "IRAN_SHAPARAK"]);
+export const EcosystemIdSchema = EcosystemSchema;
 export type EcosystemId = z.infer<typeof EcosystemIdSchema>;
 
 export const DirectionSchema = z.enum(["ltr", "rtl"]);
@@ -9,18 +11,7 @@ export type Direction = z.infer<typeof DirectionSchema>;
 export const LocaleSchema = z.enum(["en", "fa"]);
 export type Locale = z.infer<typeof LocaleSchema>;
 
-export const CurrencySchema = z.enum(["USD", "TOMAN"]);
-export type Currency = z.infer<typeof CurrencySchema>;
-
-export const PaymentRailSchema = z.enum([
-  "STRIPE_CREDIT_CARD",
-  "KLARNA_BNPL",
-  "SHAPARAK_IPG",
-  "SNAPP_PAY_BNPL",
-]);
-export type PaymentRail = z.infer<typeof PaymentRailSchema>;
-
-export const EcosystemConfigSchema = z.object({
+export const EcosystemConfigSchema = z.strictObject({
   id: EcosystemIdSchema,
   name: z.string(),
   subtitle: z.string(),
@@ -55,7 +46,7 @@ export const ECOSYSTEM_CONFIGS: Record<EcosystemId, EcosystemConfig> = {
     subtitle: "درگاه پرداخت اینترنتی شاپرک و اسنپ‌پی اقساطی",
     locale: "fa",
     direction: "rtl",
-    currency: "TOMAN",
+    currency: "IRT",
     currencySymbol: "تومان",
     primaryGateway: "Shaparak IPG (Saman/Mellat)",
     bnplProvider: "SnappPay BNPL (4 اقساط)",

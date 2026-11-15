@@ -1,6 +1,7 @@
 "use client";
 
 import * as React from "react";
+import { useShallow } from "zustand/react/shallow";
 import {
   ShieldAlert,
   Server,
@@ -25,8 +26,12 @@ import { StatusDot } from "@/components/atoms/StatusDot";
 import { Button } from "@/components/atoms/Button";
 
 export default function Home() {
-  const { currentEcosystem, config, xRayMode, triggerVpnSimulation } =
-    useEcosystemStore();
+  const { currentEcosystem, config, xRayMode, triggerVpnSimulation } = useEcosystemStore(useShallow((state) => ({
+    currentEcosystem: state.currentEcosystem,
+    config: state.config,
+    xRayMode: state.xRayMode,
+    triggerVpnSimulation: state.triggerVpnSimulation,
+  })));
   const isIran = currentEcosystem === "IRAN_SHAPARAK";
 
   return (
@@ -108,10 +113,10 @@ export default function Home() {
             <div className="flex flex-col sm:flex-row lg:flex-col gap-2.5 w-full sm:w-auto shrink-0">
               <div className="p-3.5 rounded-2xl bg-surface-secondary/90 border border-border-subtle font-mono text-xs space-y-2 min-w-56 shadow-sm">
                 <div className="flex items-center justify-between">
-                  <span className="text-text-subtle">Cluster State:</span>
+                  <span className="text-text-subtle">Simulation:</span>
                   <div className="flex items-center gap-1.5 text-emerald-400 font-bold">
                     <StatusDot status="healthy" />
-                    ONLINE
+                    BROWSER ONLY
                   </div>
                 </div>
                 <div className="flex items-center justify-between">
@@ -122,7 +127,7 @@ export default function Home() {
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-text-subtle">Idempotency Lock:</span>
-                  <span className="text-brand font-bold">ACTIVE (0 dupes)</span>
+                  <span className="text-brand font-bold">IN-MEMORY</span>
                 </div>
                 <div className="flex items-center justify-between">
                   <span className="text-text-subtle">DAG Depth:</span>
@@ -242,7 +247,7 @@ export default function Home() {
                 </div>
                 <p className="text-xs sm:text-sm text-text-secondary max-w-2xl leading-relaxed">
                   {isIran
-                    ? "طراح سیستم، ایده‌پرداز و رهبر ارکستریشن هوش مصنوعی در پروژه OmniPay. هدایت و یکپارچه‌سازی چند ایجنت هوشمند برای خلق معماری توزیع‌شده و بدون خطا."
+                    ? "طراح سیستم، ایده‌پرداز و رهبر ارکستریشن هوش مصنوعی در پروژه OmniPay. هدایت و یکپارچه‌سازی چند ایجنت هوشمند برای مدل‌سازی و آزمودن الگوهای تاب‌آوری توزیع‌شده."
                     : "System Designer, Visionary & Multi-Agent AI Orchestrator. Directed the end-to-end architecture, domain modeling, and deterministic resilience engineering of OmniPay."}
                 </p>
                 {/* Featured LinkedIn Interactive Preview Bar */}

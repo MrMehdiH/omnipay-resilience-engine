@@ -148,6 +148,14 @@ export const ChaosConfigSchema = z.strictObject({
 });
 export type ChaosConfig = z.infer<typeof ChaosConfigSchema>;
 
+export const SimulationOptionsSchema = z.strictObject({
+  forceReplay: z.boolean().optional(),
+  forceConflict: z.boolean().optional(),
+}).refine((options) => !(options.forceReplay && options.forceConflict), {
+  message: 'Replay and payload conflict cannot be requested together.',
+});
+export type SimulationOptions = z.infer<typeof SimulationOptionsSchema>;
+
 export const RetryPolicySchema = z
   .strictObject({
     maxAttempts: z.number().int().min(1).max(10),
